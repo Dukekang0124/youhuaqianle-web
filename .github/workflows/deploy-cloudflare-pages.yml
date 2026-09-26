@@ -1,0 +1,41 @@
+name: Deploy to Cloudflare Pages
+
+# 这个仓库的根目录就是网页版的站点根（index.html 与 js/、style.css 都在根上）。
+# 每次推送到 main：GitHub Pages 由平台自己部署，Cloudflare Pages 由这个 Action 部署。
+# 抄的是作品集里 Sinoky 已跑通的那份（cloudflare/pages-action@v1 + 仓库 Secrets），
+# 区别只有：本站点没有构建步骤，需要先把仓库自己的 .github 和 README 排除在上传目录之外。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 只挑站点文件进 dist（排除 .github、README 与 dist 自己）
+        run: |
+          mkdir -p dist
+          find . -maxdepth 1 -mindepth 1 \
+            -not -path './.git*' -not -name 'README.md' -not -name 'dist' \
+            -exec cp -R {} dist/ \;
+          test -f dist/index.html
+          test -f dist/js/app.js
+          touch dist/.nojekyll
+          ls -l dist dist/js
+
+      - name: 部署到 Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: youhuaqianle
+          directory: dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

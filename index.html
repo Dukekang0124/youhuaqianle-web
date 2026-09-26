@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15151b">
+<meta name="description" content="又花钱了 · 网页版：说一句，记一笔。账本只存在你自己的浏览器里，服务器上没有你的数据。">
+<title>又花钱了 · 网页版</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">💸</span>
+      <span><b>又花钱了</b><i>网页版</i></span>
+    </div>
+    <div class="localchip" title="账本只存在这台设备的浏览器里，不上传">本机存储 · 零上传</div>
+  </header>
+
+  <main>
+    <!-- 今日 -->
+    <section class="view" id="view-today">
+      <div class="quick">
+        <div class="quickhead">
+          <span>说一句，记一笔</span>
+          <button id="mic" class="mic" type="button" aria-label="语音输入">🎤</button>
+        </div>
+        <textarea id="say" rows="2" placeholder="中午星巴克拿铁三十二块，打车回家二十七块五" autocomplete="off"></textarea>
+        <div class="quickact">
+          <button id="parse" class="primary" type="button">记这笔</button>
+          <button id="manual" class="ghost" type="button">手动填</button>
+        </div>
+        <div class="hints" id="hints"></div>
+        <p class="micnote" id="micnote" hidden>语音用的是浏览器自带的识别服务：按下后这句话会被送到浏览器厂商做语音转文字，转换结果回到本页再解析。账本数据始终不出本机。不想用可以只打字。</p>
+      </div>
+
+      <div id="pending" class="pending"></div>
+
+      <div class="card todaycard">
+        <div class="todaytop">
+          <div>
+            <small>今日净支出</small>
+            <div class="big" id="today-total">¥0</div>
+          </div>
+          <div class="todayright">
+            <div class="streak" id="streak" hidden>🔥 0 天连胜</div>
+            <div class="lamp" id="lamp" hidden></div>
+          </div>
+        </div>
+        <p class="line" id="today-max"></p>
+        <p class="line gold" id="budget-line" hidden></p>
+        <p class="line amber" id="budget-per" hidden></p>
+      </div>
+
+      <div class="sechead">今天</div>
+      <ul class="txlist" id="today-list"></ul>
+      <div class="empty" id="today-empty" hidden><span>💤</span><p>今天还没有记录，说一句就有了</p></div>
+
+      <div class="card nudge" id="backup-nudge" hidden>
+        <p class="line amber" id="backup-nudge-text"></p>
+        <div class="btnrow">
+          <button id="bk-json" class="ghost" type="button">导出 JSON</button>
+          <button id="bk-copy" class="ghost" type="button">复制备份内容</button>
+        </div>
+        <textarea id="bk-plain" rows="5" hidden readonly></textarea>
+      </div>
+    </section>
+
+    <!-- 明细 -->
+    <section class="view" id="view-list" hidden>
+      <div class="filters">
+        <div class="segs" id="range-segs">
+          <button data-range="week" type="button">近 7 天</button>
+          <button data-range="month" type="button" class="on">本月</button>
+          <button data-range="all" type="button">全部</button>
+        </div>
+        <input id="search" type="search" placeholder="搜商户 / 分类 / 原话">
+        <select id="cat-filter"><option value="">全部分类</option></select>
+      </div>
+      <div class="sumline" id="list-sum"></div>
+      <div id="groups"></div>
+      <div class="empty" id="list-empty" hidden><span>🧾</span><p>这个范围内还没有账目</p></div>
+    </section>
+
+    <!-- 统计 -->
+    <section class="view" id="view-stats" hidden>
+      <div class="filters">
+        <div class="segs" id="p-segs">
+          <button data-p="week" type="button">周</button>
+          <button data-p="month" type="button" class="on">月</button>
+          <button data-p="year" type="button">年</button>
+        </div>
+        <div class="segs" id="s-segs">
+          <button data-s="net" type="button" class="on">净支出</button>
+          <button data-s="expense" type="button">支出</button>
+          <button data-s="income" type="button">收入</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="statgrid">
+          <div><small>本期</small><div class="mid" id="st-cur">¥0</div></div>
+          <div><small>上期</small><div class="mid dim" id="st-prev">¥0</div></div>
+          <div><small>环比</small><div class="mid" id="st-pop">—</div></div>
+          <div><small>日均</small><div class="mid" id="st-avg">¥0</div></div>
+        </div>
+        <div class="bars" id="st-series"></div>
+      </div>
+      <div class="card">
+        <div class="sechead">钱都去哪了</div>
+        <div id="st-cats" class="catrows"></div>
+      </div>
+      <div class="card">
+        <div class="sechead">花得最多的店</div>
+        <ul id="st-merchants" class="rows"></ul>
+      </div>
+      <div class="card">
+        <div class="sechead">本月哪天花的</div>
+        <div id="st-heat" class="heat"></div>
+        <p class="line dim">颜色越暖 = 那天花得越多</p>
+      </div>
+    </section>
+
+    <!-- 我的 -->
+    <section class="view" id="view-me" hidden>
+      <div class="card">
+        <div class="sechead">预算与收入</div>
+        <label class="field"><span>本月总预算（元）</span><input id="inp-budget" type="number" min="0" step="1" placeholder="不设"></label>
+        <label class="field"><span>月收入（元，用于储蓄率）</span><input id="inp-income" type="number" min="0" step="1" placeholder="不设"></label>
+        <p class="line dim">预算只影响本页的红绿灯，不会提醒任何人——网页版没有通知，也没有服务器。</p>
+      </div>
+
+      <div class="card">
+        <div class="sechead">账本在手机上 / 想换设备</div>
+        <p class="line dim">网页版与 App 之间<b>不做云同步</b>（这是产品边界：账本永远只在你自己手里）。要搬数据就用下面的导出／导入，格式两边通用。</p>
+        <div class="btnrow">
+          <button id="exp-json" class="ghost" type="button">导出 JSON</button>
+          <button id="exp-csv" class="ghost" type="button">导出 CSV</button>
+          <button id="imp-btn" class="ghost" type="button">导入 JSON</button>
+        </div>
+        <p class="line dim" id="last-backup"></p>
+        <textarea id="imp-box" rows="4" placeholder="把 App「设置 → 导出 → JSON」的内容粘贴到这里，再点上面的导入" hidden></textarea>
+        <div class="btnrow" id="imp-row" hidden>
+          <button id="imp-go" class="primary" type="button">确认导入</button>
+          <button id="imp-cancel" class="ghost" type="button">取消</button>
+        </div>
+        <p class="line" id="imp-msg" hidden></p>
+      </div>
+
+      <div class="card">
+        <div class="sechead">这份代码在做什么</div>
+        <ul class="plain">
+          <li>解析、分类、统计、预算判定全部在你浏览器里跑，规则与 App 的 <code>core/</code> 同一套（同一份黄金集回归）。</li>
+          <li>没有账号、没有后端接口、没有埋点、不发任何请求。打开这一次后，断网也能记。</li>
+          <li>唯一的对外发送可能是语音转文字，且需要你点麦克风才会发生，可以在下面关掉。</li>
+        </ul>
+        <label class="field switch"><span>允许网页版使用浏览器语音识别</span><input id="inp-voice" type="checkbox"></label>
+      </div>
+
+      <div class="card">
+        <div class="sechead">危险区</div>
+        <button id="wipe" class="danger" type="button">清空本机账本</button>
+        <p class="line dim">清空只影响这台设备的这个浏览器，且需要二次确认。</p>
+      </div>
+
+      <p class="ver" id="ver"></p>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-view="today" class="on" type="button"><span>📅</span>今日</button>
+    <button data-view="list" type="button"><span>🧾</span>明细</button>
+    <button data-view="stats" type="button"><span>📊</span>统计</button>
+    <button data-view="me" type="button"><span>👤</span>我的</button>
+  </nav>
+
+  <div class="toast" id="toast" hidden></div>
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheetbox">
+      <h3 id="sheet-title">手动记一笔</h3>
+      <div class="sheetbody" id="sheet-body"></div>
+      <div class="btnrow">
+        <button id="sheet-ok" class="primary" type="button">好</button>
+        <button id="sheet-cancel" class="ghost" type="button">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
