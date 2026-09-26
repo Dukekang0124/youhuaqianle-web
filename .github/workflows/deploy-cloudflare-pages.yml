@@ -20,6 +20,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 第一次实跑（2026-09-26 run 36215458552）3 秒就红在 Set up job，人看不出为什么。
+      # Secrets 到位后如果还红，这一步会直接给一句人话，而不是让人去猜是哪个变量没填。
+      - name: 先确认 Secrets 到位
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::仓库 Settings → Secrets and variables → Actions 里还没有 CLOUDFLARE_API_TOKEN。补上后在本页 Run workflow 重跑即可（值只进 GitHub 后台，不进仓库、不进聊天记录）。"
+            exit 1
+          fi
+          echo "CLOUDFLARE_API_TOKEN 已就位（长度 ${#CLOUDFLARE_API_TOKEN}，值不打印）"
+
       - name: 只挑站点文件进 dist（排除 .github、README 与 dist 自己）
         run: |
           mkdir -p dist
@@ -35,7 +47,10 @@ jobs:
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Account ID 是标识符不是凭据（没有 token 它什么都打不开），且已在康哥自己两份产品文档里
+          # 交叉确认过同一个值（词汇生长 Worker 部署记录 + Sinoky 部署笔记），所以这里给了默认值：
+          # 他只需要在 Secrets 里补那一个 token，第二个 Secret 可省。
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || 'd24caa86ff464fd98e1c95a11c814a61' }}
           projectName: youhuaqianle
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
