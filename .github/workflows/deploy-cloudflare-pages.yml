@@ -32,12 +32,15 @@ jobs:
           fi
           echo "CLOUDFLARE_API_TOKEN 已就位（长度 ${#CLOUDFLARE_API_TOKEN}，值不打印）"
 
-      - name: 只挑站点文件进 dist（排除 .github、README 与 dist 自己）
+      # updates/ 是安卓包的第二更新源（单个 APK 约 50MB）。Cloudflare Pages 单文件上限 25MB，
+      # 带进 dist 会让整个部署红掉，而网页版本来也不需要它，所以这里一并排除。
+      - name: 只挑站点文件进 dist（排除 .github、README、updates 与 dist 自己）
         run: |
           mkdir -p dist
           find . -maxdepth 1 -mindepth 1 \
-            -not -path './.git*' -not -name 'README.md' -not -name 'dist' \
+            -not -path './.git*' -not -name 'README.md' -not -name 'dist' -not -name 'updates' \
             -exec cp -R {} dist/ \;
+          test ! -e dist/updates
           test -f dist/index.html
           test -f dist/js/app.js
           touch dist/.nojekyll
