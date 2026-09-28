@@ -1,0 +1,34 @@
+name: keep-pages-branch-in-sync
+
+# Pages 现在是挂在 gh-pages 分支上的（2026-09-28 由推 gh-pages 分支自动开启，零 token、零 Settings 点击）。
+# 代价是：gh-pages 是一个**快照**——推 main 不会动它，于是 https://…github.io/updates/version.json
+# 会停在旧版本，而 raw 那条一直在跟着 main 走。两条内置源一条新一条旧，用户看到的版本号取决于
+# 客户端先问到谁，这正是 v0.11.5 那次「健康但陈旧的源把新源挡在门外」的同一种坏，只是换到了分支层。
+# 所以这里用 Actions 自带的 GITHUB_TOKEN（仓库权限 contents: write，密钥不进仓库、不进聊天）
+# 把 main 的这一次提交原样推到 gh-pages：站点与更新源永远等于仓库这一版。
+#
+# 触发条件只写 main，gh-pages 上的推送不会再跑这个 workflow，没有自循环。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # actions/checkout 默认就把本次运行的 token 配成了 git 凭据，所以下面 push 不需要写任何密钥
+      - uses: actions/checkout@v4
+
+      - name: main 推到哪，gh-pages 就跟到哪
+        run: |
+          set -e
+          git fetch origin gh-pages:gh-pages 2>/dev/null || git branch gh-pages
+          git branch -f gh-pages "$GITHUB_SHA"
+          git push --force origin gh-pages:gh-pages
+          echo "gh-pages 已指向 $GITHUB_SHA（与 main 同一提交，仓库对象不翻倍）"
