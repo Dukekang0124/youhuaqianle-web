@@ -2,8 +2,13 @@ name: Deploy to Cloudflare Pages
 
 # 这个仓库的根目录就是网页版的站点根（index.html 与 js/、style.css 都在根上）。
 # 每次推送到 main：GitHub Pages 由平台自己部署，Cloudflare Pages 由这个 Action 部署。
-# 抄的是作品集里 Sinoky 已跑通的那份（cloudflare/pages-action@v1 + 仓库 Secrets），
+# 抄的是作品集里 Sinoky 已跑通的那套「Cloudflare 官方 Action + 仓库 Secrets」，
 # 区别只有：本站点没有构建步骤，需要先把仓库自己的 .github 和 README 排除在上传目录之外。
+# 🔴 2026-09-28 抓到这条腿连续五次红在 Set up job 的真正原因：原来写的 `cloudflare/pages-action`
+# 这个仓库在 GitHub 上**根本不存在**（`api.github.com/repos/cloudflare/pages-action` 回 404）。
+# Action 解析失败发生在**任何一步之前**，所以连下面那句「Secrets 到位」自检都没跑到，日志里只剩
+# 一句看不懂的 Set up job —— 之前四轮都当成「Runner/工作流权限」问题在猜。现在用官方在维护的
+# `cloudflare/wrangler-action@v4`（输入名 command 与旧版一致，wrangler 由 Action 自己装）。
 
 on:
   push:
@@ -20,8 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 第一次实跑（2026-09-26 run 36215458552）3 秒就红在 Set up job，人看不出为什么。
-      # Secrets 到位后如果还红，这一步会直接给一句人话，而不是让人去猜是哪个变量没填。
+      # Secrets 没到位时，这一步会直接给一句人话，而不是让人去猜是哪个变量没填。
+      # （在修好 Action 名字之前，这一步从来没有被执行过——红的是 Set up job，不是这里。）
       - name: 先确认 Secrets 到位
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -48,13 +53,20 @@ jobs:
           ls -l dist dist/js
 
       - name: 部署到 Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        id: cf
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           # Account ID 是标识符不是凭据（没有 token 它什么都打不开），且已在康哥自己两份产品文档里
           # 交叉确认过同一个值（词汇生长 Worker 部署记录 + Sinoky 部署笔记），所以这里给了默认值：
           # 他只需要在 Secrets 里补那一个 token，第二个 Secret 可省。
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || 'd24caa86ff464fd98e1c95a11c814a61' }}
-          projectName: youhuaqianle
-          directory: dist
+          # 项目不存在时 `pages deploy` 只会甩一句难懂的 404。这里的 `|| true` 是刻意的：
+          # 「已经存在」是这条命令最常见的结果，真正的失败交给下一步的 deploy 报出准确原因。
+          preCommands: pages project create youhuaqianle --production-branch main || true
+          command: pages deploy dist --project-name youhuaqianle
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # 巡检（healthcheck.yml）按这个地址回读；红在这里打印出来，就不用去猜部署到了哪。
+      - name: 打印线上地址
+        run: echo "https://youhuaqianle.pages.dev ；本次部署 = ${{ steps.cf.outputs.deployment-url }}"
