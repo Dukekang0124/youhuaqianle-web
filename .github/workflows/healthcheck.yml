@@ -73,6 +73,18 @@ jobs:
                   return url
               return base.rstrip("/") + "/" + url.lstrip("/")
 
+          def range8k(url):
+              # 送达判据：HEAD 200 + content-length 只证明文件在；取回开头 8 KiB 与本地同偏移比字节，
+              # 才能抓住「中间层改写/缓存了另一版」（jsDelivr 那次就是这么露馅的）。
+              req = urllib.request.Request(url, headers=dict(UA, **{"Range": "bytes=0-8191", "Cache-Control": "no-cache"}))
+              try:
+                  r = urllib.request.urlopen(req, timeout=30)
+                  return r.status, r.read(8192), r.headers.get("content-range", "")
+              except urllib.error.HTTPError as e:
+                  return e.code, b"", ""
+              except Exception as e:
+                  return -1, repr(e)[:70].encode(), ""
+
           def check_site(base, fails, warns):
               for name in assets:
                   st, body, ctype = fetch(base + "/" + name + "?v=" + expect_ver)
@@ -134,6 +146,35 @@ jobs:
                   else:
                       served.append(ub)
                       print("  [%s] version.json 逐字节一致 · %s HEAD %s B（整包下载由 App 端 MD5 兜底）" % (ub, name, clen or "?"))
+                      # ---- 分块：2045 起 App 真正下的是 parts/*，只比整包 HEAD 等于没检 ----
+                      # 逐块取远端开头 8 KiB 与本地同偏移比字节；长度对得上但内容被中间层换掉的，
+                      # 只有这一步抓得住（jsDelivr 那次就是「版本号对、字节永远对不上」）。
+                      pd = apk.get("parts")
+                      plist = (pd.get("parts") if isinstance(pd, dict) else pd) or []
+                      if not plist:
+                          fails.append("更新源 %s 的清单里没有分块信息（2045 起 App 按 parts 下载）" % ub)
+                      else:
+                          psum = sum(int(p.get("size") or 0) for p in plist)
+                          if psum != size:
+                              fails.append("更新源 %s 分块合计 %s ≠ 整包 %s" % (ub, psum, size))
+                          else:
+                            # 每一块单独判，红的时候能一眼指出是哪一块
+                            for p in plist:
+                                pu = p.get("url") or ""
+                                ppath = os.path.join("updates", *pu.split("/"))
+                                if not os.path.exists(ppath):
+                                    fails.append("更新源 %s 声明了 %s，但仓库里没有这块" % (ub, pu))
+                                    continue
+                                want = open(ppath, "rb").read(8192)
+                                pst, pbody, crange = range8k(resolve(ub + "/", pu))
+                                if pst not in (200, 206):
+                                    fails.append("更新源 %s/%s -> Range HTTP %s" % (ub, pu, pst))
+                                    continue
+                                if pbody[:len(want)] != want:
+                                    fails.append("更新源 %s/%s 开头 %d B 与仓库不一致（中间层改写或缓存了另一版）" % (ub, pu, len(want)))
+                                    continue
+                                mode = "206 续传" if pst == 206 else "服务端没理会 Range，回 200 整份，只比对了开头"
+                                print("    %s 开头 %d B 一致（%s）" % (pu, len(want), mode))
               for mb in os.environ["UPDATE_MIRRORS"].split():
                   st, body, _ = fetch(mb.rstrip("/") + "/version.json")
                   if st != 200:
