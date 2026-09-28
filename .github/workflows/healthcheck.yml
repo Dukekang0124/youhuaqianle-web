@@ -35,7 +35,7 @@ jobs:
       - name: 线上一致性巡检
         run: |
           python3 - <<'PY'
-          import os, re, sys, json, hashlib, urllib.request, urllib.error
+          import os, re, sys, json, socket, struct, hashlib, urllib.request, urllib.error
 
           UA = {"User-Agent": "yhq-web-healthcheck/1.0 (+github-actions)"}
           app = open("js/app.js", encoding="utf-8").read()
@@ -92,7 +92,7 @@ jobs:
 
           print("== 又花钱了 网页版 线上巡检 ==")
           print("期望：", expect_ver, "| 备份保鲜阈值", expect_days, "天 |", len(assets), "个文件")
-          fails, warns = [], []
+          fails, warns, served = [], [], []
 
           for base in os.environ["SITE_BASES"].split():
               check_site(base, fails, warns)
@@ -132,6 +132,7 @@ jobs:
                   elif clen and int(clen) != size:
                       fails.append("更新源 %s/%s 长度 %s ≠ version.json 的 %s" % (ub, name, clen, size))
                   else:
+                      served.append(ub)
                       print("  [%s] version.json 逐字节一致 · %s HEAD %s B（整包下载由 App 端 MD5 兜底）" % (ub, name, clen or "?"))
               for mb in os.environ["UPDATE_MIRRORS"].split():
                   st, body, _ = fetch(mb.rstrip("/") + "/version.json")
@@ -142,8 +143,112 @@ jobs:
                   mc = m.get("versionCode")
                   line = "旧更新站 %s 报的是 versionCode %s（仓库 %s）" % (mb, mc, apk["versionCode"])
                   warns.append(line + ("｜落后，App 在这个源上收不到新版" if mc != apk["versionCode"] else "｜与仓库同版"))
+                  if mc == apk["versionCode"]:
+                      served.append(mb)
                   hst, clen = head(resolve(mb.rstrip("/") + "/", m.get("url", "")))
                   print("  [%s] HEAD %s -> HTTP %s %s B" % (mb, m.get("url"), hst, clen or "?"))
+              # ---- 公共 DNS 视角：海外 runner 的 200 不等于用户问得到 ----
+              # 上面每一条绿都是这台 GitHub 机器在海外取的，所以这里额外用「国内解析器」问一遍那几个域名。
+              # 为什么必须有对照组：2026-09-28 在本机（Windows + fastgithub 加速器）拿 223.5.5.5 问
+              # raw.githubusercontent.com 回的是 127.0.0.1，一度被写成「国内 DNS 污染 GitHub」；当晚换
+              # 1.1.1.1 / 8.8.8.8 / 9.9.9.9 再问，**回的还是 127.0.0.1** —— 那个回环地址是本机网络栈造的，
+              # 跟国内解析器没关系。所以只有「国内回环 + 境外真 IP」才叫国内侧的问题；
+              # 两边都回环 = 这台机器自己在拦，结论只能是「判不了」。
+              # 另一条要如实说的边界：runner 在海外，AliDNS 是按来源地做智能解析的，
+              # 它给这台 runner 的答案不等于给国内手机的答案——这一项只能当旁证，真机那一条（走查 144）才算验收。
+              # 结论一律只进 warns 不判红（解析现状不是本仓库能修的，天天邮件只会把告警训成噪音），但每次都要打印。
+              CN_RESOLVERS = ["223.5.5.5", "119.29.29.29"]
+              FOREIGN_RESOLVERS = ["1.1.1.1", "9.9.9.9"]
+
+              def qname(n):
+                  return b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\x00"
+
+              def dns_a(host, server, timeout=3.0):
+                  pkt = struct.pack(">HHHHHH", 0x4849, 0x0100, 1, 0, 0, 0) + qname(host) + struct.pack(">HH", 1, 1)
+                  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                  s.settimeout(timeout)
+                  try:
+                      s.sendto(pkt, (server, 53))
+                      data, _ = s.recvfrom(2048)
+                  except Exception as e:
+                      return None, repr(e)[:50]
+                  finally:
+                      s.close()
+                  if len(data) < 12:
+                      return None, "包太短"
+                  ancount = struct.unpack(">H", data[6:8])[0]
+                  i = 12
+                  while i < len(data) and data[i]:
+                      i += 1 + data[i]
+                  i += 5
+                  ips = []
+                  for _ in range(ancount):
+                      if i + 12 > len(data):
+                          break
+                      if data[i] & 0xC0:
+                          i += 2
+                      else:
+                          while i < len(data) and data[i]:
+                              i += 1 + data[i]
+                          i += 1
+                      if i + 10 > len(data):
+                          break
+                      rtype, _, _, rdlen = struct.unpack(">HHIH", data[i:i + 10])
+                      i += 10
+                      rd = data[i:i + rdlen]
+                      i += rdlen
+                      if rtype == 1 and rdlen == 4:
+                          ips.append(".".join(str(b) for b in rd))
+                  return ips, ""
+
+              def host_of(u):
+                  return u.split("//")[1].split("/")[0]
+
+              def ask(host, servers):
+                  got, errs = [], []
+                  for srv in servers:
+                      ips, err = dns_a(host, srv)
+                      if err:
+                          errs.append("%s:%s" % (srv, err))
+                      else:
+                          got += ips
+                  uniq = sorted(set(got))
+                  loop = bool(uniq) and all(ip.startswith("127.") for ip in uniq)
+                  return uniq, loop, errs
+
+              print("\n-- 公共 DNS 怎么看这几个域名（国内 223.5.5.5/119.29.29.29 · 对照 1.1.1.1/9.9.9.9）--")
+              verdicts = {}
+              for h in sorted({host_of(u) for u in os.environ["UPDATE_BASES"].split()} | {host_of(u) for u in os.environ["UPDATE_MIRRORS"].split()}):
+                  cn, cn_loop, cn_err = ask(h, CN_RESOLVERS)
+                  fg, fg_loop, fg_err = ask(h, FOREIGN_RESOLVERS)
+                  if cn_loop and not fg_loop and fg:
+                      verdicts[h] = "poisoned"  # 只有国内回环，境外给的是真 IP：国内侧解析问题
+                      line = "⚠ 只有国内解析器回 127.0.0.1（境外回 %s）：国内手机问不到这个域名" % ",".join(fg[:2])
+                      warns.append("国内公共 DNS 把 %s 解析成 127.0.0.1 而境外解析器给真 IP：没挂代理的手机连 IP 都拿不到，App 内置这条地址在他的网络里等于不存在" % h)
+                  elif cn_loop and fg_loop:
+                      verdicts[h] = "intercepted"  # 两边都回环：这台 runner 自己也在某个加速器后面，判不了
+                      line = "⚠ 国内与境外解析器都回 127.0.0.1：这台 runner 的网络在拦 GitHub，本机结论与手机无关（不作为「国内污染」的证据）"
+                      warns.append("%s 在这次巡检里判不了可达性：国内和境外公共 DNS 都被改写成 127.0.0.1，说明拦的是这台 runner 而不是手机那张网" % h)
+                  elif cn:
+                      verdicts[h] = "ok"
+                      line = "国内解析到 " + ",".join(cn[:3]) + ("（境外 " + ",".join(fg[:2]) + "）" if fg else "")
+                  else:
+                      verdicts[h] = "fail"
+                      line = "两台公共 DNS 都没答：" + ";".join((cn_err + fg_err)[:2])
+                  print("  %s -> %s" % (h, line))
+              # 汇总只在「问到了答案」的前提下做：runner 在海外，到国内公共 DNS 的 UDP 有可能被过滤，
+              # 那种时候两台都不答，等于这项没测——不许把它读成「国内问不到」（假红同源，只是方向相反）。
+              judged = ("ok", "poisoned")
+              known = [u for u in served if verdicts.get(host_of(u)) in judged]
+              live_served = [u for u in known if verdicts[host_of(u)] == "ok"]
+              if known and not live_served:
+                  warns.append("== 上面这些「内容正确」的更新源（%s）在国内 DNS 视角下一条都问不到：这一版对手机没有可用的内置源，只能等旧更新站补发或桌面覆盖安装 ==" % ", ".join(known))
+              elif live_served:
+                  print("  国内可达且带本版号的腿：", ", ".join(live_served))
+              elif served:
+                  warns.append("公共 DNS 对上面这些域名没给出可用结论（没答或本机被拦）：手机侧可达性这一项没测出来，不下结论")
+
+
               # 下载页：用户拿到链接能不能一键下包（Pages 没开时这项必然红，那是真红不是假红）
               for base in os.environ["REPO_BASES"].split():
                   st, body, _ = fetch(base + "/download.html")
