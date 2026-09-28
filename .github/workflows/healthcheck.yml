@@ -15,6 +15,9 @@ permissions:
 
 env:
   BASES: "https://dukekang0124.github.io/youhuaqianle-web https://youhuaqianle.pages.dev"
+  # 更新源只在这两个地方：仓库经 Pages（开了才有）与 raw。Cloudflare Pages 那份 dist 里没有 updates/
+  # （50MB 的 APK 超过 CF Pages 单文件 25MB 上限，deploy workflow 明确把它排除在站点之外）。
+  UPDATE_BASES: "https://dukekang0124.github.io/youhuaqianle-web/updates https://raw.githubusercontent.com/Dukekang0124/youhuaqianle-web/main/updates"
 
 jobs:
   healthcheck:
@@ -25,7 +28,7 @@ jobs:
       - name: 线上一致性巡检
         run: |
           python3 - <<'PY'
-          import os, re, sys, urllib.request, urllib.error
+          import os, re, sys, json, hashlib, urllib.request, urllib.error
 
           bases = os.environ["BASES"].split()
           app = open("js/app.js", encoding="utf-8").read()
@@ -66,6 +69,49 @@ jobs:
                   if name == "js/store.js" and ("BACKUP_STALE_DAYS = " + expect_days) not in text.replace("  ", " "):
                       fails.append("%s 的备份保鲜阈值与仓库不一致" % base)
               print("[%s] 检查完毕" % base)
+
+          # ---- 更新源：App 能不能知道「有线上新版」全靠这里 ----
+          # 期望值不写死，全部从 checkout 下来的 updates/version.json 现读：推一次包就等于改期望，
+          # 巡检永远拿「仓库里这一版」去对「线上这一版」，不会出现「脚本守着旧版本号报绿」。
+          def head(url):
+              req = urllib.request.Request(url, headers={"User-Agent": "yhq-web-healthcheck/1.0 (+github-actions)"}, method="HEAD")
+              try:
+                  r = urllib.request.urlopen(req, timeout=30)
+                  return r.status, r.headers.get("content-length", ""), r.headers.get("content-range", "")
+              except urllib.error.HTTPError as e:
+                  return e.code, "", ""
+              except Exception as e:
+                  return -1, repr(e)[:80], ""
+
+          if os.path.exists("updates/version.json"):
+              local = open("updates/version.json", "rb").read()
+              local_sha = hashlib.sha256(local).hexdigest()
+              vj = json.loads(local.decode("utf-8"))
+              apk = vj["apk"]
+              print("\n-- 更新源（期望 versionCode %s / %s B / md5 %s）--" % (apk["versionCode"], apk["size"], apk["md5"]))
+              for ub in os.environ["UPDATE_BASES"].split():
+                  st, body, _ = fetch(ub + "/version.json")
+                  if st != 200:
+                      fails.append("更新源 %s/version.json -> HTTP %s%s" % (ub, st, "（GitHub Pages 未开启：Settings → Pages → Deploy from branch, main / root）" if "github.io" in ub else ""))
+                      continue
+                  if hashlib.sha256(body).hexdigest() != local_sha:
+                      fails.append("更新源 %s 的 version.json 与仓库不是同一份（线上 versionCode=%s，仓库 %s）" % (ub, json.loads(body.decode("utf-8","replace")).get("apk", {}).get("versionCode"), apk["versionCode"]))
+                  # apk.url 是光文件名，所以下载腿 = base + 文件名（与客户端 resolveDownloadUrl 同一条规则）
+                  name = apk["url"]
+                  hst, clen, _ = head(ub + "/" + name)
+                  if hst != 200:
+                      fails.append("更新源 %s/%s -> HEAD HTTP %s" % (ub, name, hst))
+                  elif clen and int(clen) != apk["size"]:
+                      fails.append("更新源 %s/%s 长度 %s ≠ version.json 的 %s" % (ub, name, clen, apk["size"]))
+                  else:
+                      print("  [%s] version.json 一致 · %s HEAD %s B" % (ub, name, clen or "?"))
+              # 下载页：用户拿到链接能不能一键下包
+              for base in bases:
+                  st, body, _ = fetch(base + "/download.html")
+                  if st != 200:
+                      fails.append("%s/download.html -> HTTP %s" % (base, st))
+                  elif b"updates/version.json" not in body:
+                      fails.append("%s/download.html 内容不对（没引用 updates/version.json）" % base)
 
           if fails:
               print("\n==== HEALTH CHECK FAILED ====")

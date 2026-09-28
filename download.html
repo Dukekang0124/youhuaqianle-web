@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>又花钱了 · 下载</title>
+<!-- 下载页：所有数字（版本号 / 大小 / MD5 / 文件名）都从同目录的 updates/version.json 现读，
+     不写死任何一版。这样每次只推 version.json + APK，这个页面自动跟着变，不会有「页面说 2042、文件是 2041」。
+     地址一律用相对路径：Pages 域名、Cloudflare Pages 域名、还是仓库 raw 前缀，谁服务这个页面就拼谁的下载腿。 -->
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --fg:#e8eaed; --mut:#9aa3b2; --card:#171a21; --line:#262b36; --go:#3fb37f; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f7f8fa; --fg:#1a1d23; --mut:#5c6674; --card:#fff; --line:#e3e7ee; --go:#0b8a55; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 18px 60px; background:var(--bg); color:var(--fg);
+    font:16px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+  main { max-width:640px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--mut); margin:0 0 22px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin:0 0 14px; }
+  a.btn { display:block; text-align:center; background:var(--go); color:#fff; text-decoration:none;
+    padding:14px 16px; border-radius:11px; font-weight:600; font-size:17px; }
+  a.btn.off { background:var(--line); color:var(--mut); pointer-events:none; }
+  dl { margin:0; display:grid; grid-template-columns:88px 1fr; gap:6px 12px; font-size:14px; }
+  dt { color:var(--mut); } dd { margin:0; word-break:break-all; font-family:ui-monospace,Consolas,monospace; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--line);
+    border-radius:9px; padding:10px 12px; font-size:13.5px; user-select:all; }
+  details { margin-top:6px; font-size:14px; }
+  summary { color:var(--mut); cursor:pointer; }
+  .changelog { white-space:pre-wrap; font-size:14px; color:var(--fg); }
+  h2 { font-size:15px; margin:22px 0 8px; color:var(--mut); font-weight:600; }
+  p.note { font-size:13px; color:var(--mut); margin:8px 0 0; }
+  a.inlink { color:var(--go); }
+</style>
+</head>
+<body>
+<main>
+  <h1>又花钱了</h1>
+  <p class="sub">语音记账 · 数据全在你手机里 · 安卓安装包</p>
+
+  <div class="card">
+    <a id="dl" class="btn off" href="#">正在读取版本…</a>
+    <dl style="margin-top:14px">
+      <dt>版本</dt><dd id="ver">—</dd>
+      <dt>Build</dt><dd id="code">—</dd>
+      <dt>大小</dt><dd id="size">—</dd>
+      <dt>MD5</dt><dd id="md5">—</dd>
+    </dl>
+    <details><summary>更新说明</summary><div class="changelog" id="log">—</div></details>
+  </div>
+
+  <h2>把这行填进 App：设置 → 备用更新地址</h2>
+  <div class="card"><pre id="base">—</pre>
+    <p class="note">结尾那个斜杠必须留着：App 会在这行后面接 <code>version.json</code>。这一版没网也能装，只要同一个文件夹里放着 <code>version.json</code> 和安装包。</p>
+  </div>
+
+  <h2>不想装 App？网页版功能同一套口径</h2>
+  <div class="card"><a class="inlink" href="./index.html">打开网页版</a>
+    <p class="note">网页版只把账本存在这台浏览器里，导出备份后再导入 App 就接上了。</p>
+  </div>
+
+  <noscript><div class="card">
+    这个页面的版本信息靠同目录的 <code>updates/version.json</code> 现读。禁用脚本时请直接取用：
+    <dl><dt>安装包</dt><dd>updates/youhuaqianle-v0.13.1-arm64.apk</dd>
+        <dt>配置</dt><dd>updates/version.json</dd></dl>
+  </div></noscript>
+  <p class="note" id="err"></p>
+</main>
+<script>
+(function () {
+  var here = new URL(location.href);
+  var base = new URL('updates/', here);
+  document.getElementById('base').textContent = base.href;
+  fetch(new URL('version.json', base).href, { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (j) {
+      var a = j && j.apk;
+      if (!a || !a.url) throw new Error('version.json 里没有 apk 段');
+      // 与客户端 resolveDownloadUrl 同一条规则：绝对地址原样用，光文件名就拼在当前 base 后面
+      var file = /^https?:/i.test(a.url) ? a.url : new URL(a.url, base).href;
+      var btn = document.getElementById('dl');
+      btn.href = file; btn.textContent = '下载安卓安装包 ' + a.version; btn.className = 'btn';
+      document.getElementById('ver').textContent = 'v' + a.version;
+      document.getElementById('code').textContent = a.versionCode;
+      document.getElementById('size').textContent = (a.size / 1048576).toFixed(1) + ' MB（' + a.size + ' 字节）';
+      document.getElementById('md5').textContent = a.md5;
+      document.getElementById('log').textContent = a.changelog || '（这份 version.json 没带更新说明）';
+      if (j.web && j.web.version) {
+        var p = document.createElement('p');
+        p.className = 'note';
+        p.textContent = '网页版 ' + j.web.version + '（更新于 ' + (j.web.updated || '—') + '）';
+        document.querySelector('main').appendChild(p);
+      }
+    })
+    .catch(function (e) {
+      document.getElementById('dl').textContent = '版本读取失败';
+      document.getElementById('err').textContent =
+        '读 updates/version.json 失败：' + e.message + '（本地双击打开 html 时浏览器不允许 fetch，请通过线上地址访问）';
+    });
+})();
+</script>
+</body>
+</html>

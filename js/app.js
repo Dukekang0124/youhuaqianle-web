@@ -1,7 +1,7 @@
 // 又花钱了 · 网页版界面层：只做渲染与交互，判定全部走 js/ 里的纯函数（与 App core/ 同口径）
 import { parseText } from './parser.js';
 import { CATEGORIES, categoryByName } from './lexicon.js';
-import { moneyOf, netByCategory, centsStr, recordStreak } from './money.js';
+import { moneyOf, netByCategory, centsStr, recordStreak, savingsRatePct } from './money.js';
 import {
   PERIOD, SCOPE, periodRange, previousRange, txsInPeriod, elapsedUnits, scopeTotal,
   catRows, mergeTopRows, merchantTop, seriesPoints, highlightIndex, dailyHeat, heatBucket,
@@ -377,7 +377,8 @@ function renderMe() {
   $('micnote').hidden = !meta.voiceOn;
   $('last-backup').textContent = meta.lastExportAt ? `上次备份：${meta.lastExportAt}` : '这笔账本还没导出过备份';
   const m = moneyOf(txsInPeriod(txs, ...periodRange(PERIOD.month, new Date())));
-  $('ver').textContent = `又花钱了 网页版 v0.1.1 · 本机 ${txs.length} 笔 · 本月净支出 ¥${yuan(m.net)}${meta.incomeCents ? ` · 储蓄率 ${Math.max(0, Math.round((1 - m.net / meta.incomeCents) * 100))}%` : ''}`;
+  const rate = savingsRatePct(meta.incomeCents || 0, m.net);
+  $('ver').textContent = `又花钱了 网页版 v0.1.1 · 本机 ${txs.length} 笔 · 本月净支出 ¥${yuan(m.net)}${rate === null ? '' : ` · 储蓄率 ${rate}%`}`;
 }
 
 function render() {

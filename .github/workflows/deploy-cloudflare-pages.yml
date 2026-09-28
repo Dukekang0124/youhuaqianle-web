@@ -34,6 +34,7 @@ jobs:
 
       # updates/ 是安卓包的第二更新源（单个 APK 约 50MB）。Cloudflare Pages 单文件上限 25MB，
       # 带进 dist 会让整个部署红掉，而网页版本来也不需要它，所以这里一并排除。
+      # ⚠️ 这个排除只能写在这里（模板）：deploy/repo 每次打包都会被模板覆盖，改那份等于没改。
       - name: 只挑站点文件进 dist（排除 .github、README、updates 与 dist 自己）
         run: |
           mkdir -p dist

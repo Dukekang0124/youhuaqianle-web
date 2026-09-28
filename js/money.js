@@ -15,6 +15,17 @@ export function centsStr(cents) {
   return s.endsWith('.00') ? s.slice(0, -3) : s;
 }
 
+// 储蓄率 —— 与 Dart `savingsRatePct` 同一条式子：(收入 − 净支出) / 收入。
+// 允许负数（花超了这个月就是负的，截成 0 等于替用户粉饰）；收入未登记给 null。
+// 落在 money.js 而不是界面里，是因为「app.js 不许算钱」是网页版的硬规矩。
+export function savingsRatePct(incomeCents, netExpenseCents) {
+  if (incomeCents <= 0) return null;
+  const v = ((incomeCents - netExpenseCents) * 100) / incomeCents;
+  // 负数取整方向必须和 Dart 的 double.round() 一致（.5 远离 0）；
+  // JS 的 Math.round(-20.5) 给 -20，Dart 给 -21，不处理就会出现「同一个月两端差 1%」。
+  return (v < 0 ? -1 : 1) * Math.round(Math.abs(v));
+}
+
 // 分类净额（退款抵扣原分类）
 export function netByCategory(txs) {
   const out = {};
