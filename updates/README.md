@@ -3,7 +3,7 @@
 与网页版站点同仓库、互不打扰：
 
 - `version.json` — 客户端读取的更新清单（`web` / `apk` 两段，客户端只用 `apk`）
-- `youhuaqianle-v0.13.3-arm64.apk` — 当前待发的 arm64 release 包（50026822 B / md5 fda335c042894dfd67439a3ecadb5da7）
+- `youhuaqianle-v0.13.3-arm64.apk` — 当前待发的 arm64 release 包（50026822 B / md5 3f3d3c6a56739e19543e29978fb24430）
 
 `version.json` 里的 `url` 是**裸文件名**，客户端按「清单所在目录 + 文件名」拼下载地址，
 所以同一份文件挂在谁的账号下、叫什么仓库、走 Pages 还是 raw 都能装得上，不必为换托管改清单。
