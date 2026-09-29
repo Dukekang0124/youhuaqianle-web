@@ -10,11 +10,19 @@ import {
 import {
   loadTxs, addTx, updateTx, removeTx, restoreTx, loadMeta, saveMeta, clearTxs,
   buildJson, buildCsv, parseImportJson, importTxs, localTime, backupNudge,
+  goodsKnownItems, goodsCatSuggestions,
 } from './store.js';
+import { goodsCatForName, manualGoods, goodsNameProblem } from './goods_detect.js';
+import { GOODS_CATEGORIES, GOODS_OTHER, goodsIcon } from './goods_lexicon.js';
 
 const $ = (id) => document.getElementById(id);
 const yuan = (cents) => centsStr(cents);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 物品大类下拉：14 类 + 兜底，书写次序就是词表里的次序（平手时靠它保证跨设备同答案）
+const goodsOptions = (selected) => [...GOODS_CATEGORIES, GOODS_OTHER]
+  .map((c) => `<option value="${c.name}"${c.name === selected ? ' selected' : ''}>${c.emoji} ${c.name}</option>`)
+  .join('');
 
 let txs = loadTxs();
 let meta = loadMeta();
@@ -76,7 +84,7 @@ function renderHints() {
 function doParse() {
   const text = $('say').value.trim();
   if (!text) return;
-  const rows = parseText(text, new Date());
+  const rows = parseText(text, new Date(), goodsKnownItems(txs), goodsCatSuggestions(txs));
   if (!rows.length) {
     toast('这句话里没听出金额，手动填一下？');
     openManual(text);
@@ -90,6 +98,12 @@ function doParse() {
 function renderPending() {
   const box = $('pending');
   if (!pending.length) { box.innerHTML = ''; return; }
+  const learned = goodsCatSuggestions(txs);
+  // 大类显示的是**这一笔将要落库的那个类**：他没点过就是推出来的结果，点过就按他选的。
+  // 与 App 确认卡同一条：名字一改，先前推出来的大类作废重推（别让「跑鞋」挂着「饮品」）。
+  const goodsCatOf = (p) => (p.item
+    ? (p.goodsPicked ? p.goodsCat : goodsCatForName(p.item, learned))
+    : '');
   box.innerHTML = pending.map((p, i) => {
     const miss = p.amountCents === null || p.amountCents === undefined;
     return `<div class="pcard" data-i="${i}">
@@ -103,6 +117,11 @@ function renderPending() {
         </select></label>
         <label>分类<select data-f="category">${CATEGORIES.map((c) => `<option value="${c.name}"${c.name === p.category ? ' selected' : ''}>${c.emoji} ${c.name}</option>`).join('')}</select></label>
         <label>商户<input data-f="merchant" value="${esc(p.merchant)}" placeholder="可留空"></label>
+        <label>物品<input data-f="item" value="${esc(p.item ?? '')}" placeholder="${p.item ? '' : '没听出来，点一下补'}"></label>
+        <label>大类<select data-f="goodsCat"${p.item ? '' : ' disabled'}>
+          <option value=""${p.item ? '' : ' selected'}>自动判断</option>
+          ${goodsOptions(goodsCatOf(p))}
+        </select></label>
         <label style="grid-column:1/-1">时间<input data-f="when" type="datetime-local" value="${dtLocal(new Date(p.occurredAt))}"></label>
       </div>
       ${miss ? '<p class="warn-miss">没听出金额，补一下就能入账</p>' : ''}
@@ -123,6 +142,13 @@ function renderPending() {
         const f = inp.dataset.f;
         if (f === 'amount') p.amountCents = inp.value === '' ? null : Math.round(parseFloat(inp.value) * 100);
         else if (f === 'when') p.occurredAt = new Date(inp.value);
+        else if (f === 'item') {
+          p.item = inp.value.trim();
+          p.goodsTouched = true;
+          p.goodsPicked = false;
+          // 重画一次：大类那格要么跟着清空、要么换成新名字推出来的类， disabled 也要跟着变
+          renderPending();
+        } else if (f === 'goodsCat') { p.goodsCat = inp.value; p.goodsPicked = true; }
         else p[f] = inp.value;
       };
     });
@@ -133,18 +159,34 @@ function renderPending() {
   if (all) all.onclick = () => commit(pending.map((_, i) => i));
 }
 
+// 落库形态一律走 core 的那两个函数，界面不自己重算大类归属（与 App 确认卡同一条纪律）：
+// 他动过物品栏 ⇒ manualGoods（显式选过的大类压过一切，没选就交回词典+学习表推）；
+// 没动过 ⇒ 原样交回本机抽出来的结果，不许在界面上悄悄改口。
+function goodsOf(p, learned) {
+  const name = (p.item ?? '').trim();
+  if (p.goodsTouched) return manualGoods(name, p.goodsPicked ? p.goodsCat : '', learned);
+  if (name === '') return null;
+  return { item: name, itemNorm: p.itemNorm ?? '', goodsCat: p.goodsCat ?? '', src: p.itemSrc ?? '' };
+}
+
 function commit(idxs) {
   const now = new Date();
+  const learned = goodsCatSuggestions(txs);
   let added = 0;
   const kept = [];
   idxs.forEach((i) => {
     const p = pending[i];
     if (!p) return;
     if (!p.amountCents || p.amountCents <= 0) { kept.push(p); return; }
+    const err = goodsNameProblem((p.item ?? '').trim());
+    if (err) { toast(err); kept.push(p); return; }
+    const g = goodsOf(p, learned);
     txs = addTx(txs, {
       type: p.type, amountCents: p.amountCents, category: p.category || '其他',
       merchant: (p.merchant ?? '').trim(), raw: p.raw ?? '', source: 'text',
       occurredAt: p.occurredAt instanceof Date && !isNaN(p.occurredAt) ? p.occurredAt : now,
+      item: g?.item ?? '', itemNorm: g?.itemNorm ?? '',
+      goodsCat: g?.goodsCat ?? '', itemSrc: g?.src ?? '',
     });
     added++;
   });
@@ -157,6 +199,7 @@ function commit(idxs) {
 // ---------- 手动 / 编辑 ----------
 function openSheet(title, row, onSubmit) {
   $('sheet-title').textContent = title;
+  const learned = goodsCatSuggestions(txs);
   const body = $('sheet-body');
   body.innerHTML = `
     <div class="field"><span>金额（元）</span><input id="f-amount" type="number" min="0" step="0.01" value="${row?.amountCents ? row.amountCents / 100 : ''}"></div>
@@ -165,19 +208,58 @@ function openSheet(title, row, onSubmit) {
     </select></div>
     <div class="field"><span>分类</span><select id="f-cat">${CATEGORIES.map((c) => `<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}</select></div>
     <div class="field"><span>商户</span><input id="f-mer" value="${esc(row?.merchant ?? '')}" placeholder="可留空"></div>
+    <div class="field"><span>物品</span><input id="f-item" value="${esc(row?.item ?? '')}" placeholder="没记就是没记，可留空"></div>
+    <div class="field"><span>物品大类</span><select id="f-goods-cat">
+      <option value=""${row?.item ? '' : ' selected'}>自动判断</option>${goodsOptions(row?.goodsCat ?? '')}
+    </select></div>
     <div class="field"><span>时间</span><input id="f-when" type="datetime-local" value="${dtLocal(row?.occurredAt ?? new Date())}"></div>`;
+  // 🔴 与 Dart 侧 edit_sheet 同一条：只有他真动过物品栏才算手改。
+  // 打开编辑页改个金额就落 src=manual，等于把我的词典判断冒充成他的决定，
+  // 而 manual 在学习表里压过一切、他自己也撤不回来。
+  let goodsTouched = false;
+  let goodsPicked = false;
   $('f-type').value = row?.type ?? 'expense';
   $('f-cat').value = row?.category ?? '其他';
+  // 名字一改，先前推出来的大类就作废：重推一次，别让「跑鞋」挂着「饮品」
+  $('f-item').oninput = () => {
+    goodsTouched = true;
+    const nm = $('f-item').value.trim();
+    const sel = $('f-goods-cat');
+    sel.disabled = nm === '';
+    if (nm === '') {
+      sel.value = '';
+      goodsPicked = false;
+    } else if (!goodsPicked) {
+      sel.value = goodsCatForName(nm, learned);
+    }
+  };
+  $('f-goods-cat').onchange = () => {
+    goodsPicked = true;
+    goodsTouched = true;
+  };
+  $('f-goods-cat').disabled = (row?.item ?? '') === '';
   $('sheet').hidden = false;
   $('sheet-ok').onclick = () => {
     const cents = Math.round(parseFloat($('f-amount').value || '0') * 100);
     if (!cents || cents <= 0) { toast('金额没填或为 0'); return; }
+    const itemName = $('f-item').value.trim();
+    const g = goodsTouched ? manualGoods(itemName, goodsPicked ? $('f-goods-cat').value : '', learned) : null;
+    if (goodsTouched) {
+      const err = goodsNameProblem(itemName);
+      if (err) { toast(err); return; }
+    }
+    // 这里永远显式带上四个字段：updateTx 是合并写，漏带键等于改一笔金额把物品清不掉。
+    // 清空物品是合法决定（g 为 null ⇒ 四件一起空），不是「没填」。
     onSubmit({
       amountCents: cents,
       type: $('f-type').value,
       category: $('f-cat').value,
       merchant: $('f-mer').value.trim(),
       occurredAt: new Date($('f-when').value),
+      item: goodsTouched ? (g?.item ?? '') : (row?.item ?? ''),
+      itemNorm: goodsTouched ? (g?.itemNorm ?? '') : (row?.itemNorm ?? ''),
+      goodsCat: goodsTouched ? (g?.goodsCat ?? '') : (row?.goodsCat ?? ''),
+      itemSrc: goodsTouched ? (g?.src ?? '') : (row?.itemSrc ?? ''),
     });
     closeSheet();
   };
@@ -215,9 +297,12 @@ function txRow(t) {
   const c = categoryByName(t.category);
   const sign = t.type === 'income' ? '+' : t.type === 'refund' ? '−' : '';
   const cls = t.type === 'income' ? 'amt in' : 'amt';
+  // 物品跟在分类后面（与 App 明细行同一条：`' · ${goodsIcon(goods_cat)}${item}'`）。
+  // 没记物品的笔不占位——写「·（无）」等于把「他没记」渲染成一种物品。
+  const goods = t.item ? ` · ${goodsIcon(t.goodsCat)}${esc(t.item)}` : '';
   return `<li class="tx" data-id="${t.id}">
     <span class="emo">${c.emoji}</span>
-    <span class="who"><b>${esc(t.merchant || t.category)}</b><small>${c.name} · ${fmtDay(t.occurredAt)} ${String(t.occurredAt.getHours()).padStart(2, '0')}:${String(t.occurredAt.getMinutes()).padStart(2, '0')}${t.source === 'import' ? ' · 导入' : ''}</small></span>
+    <span class="who"><b>${esc(t.merchant || t.category)}</b><small>${c.name}${goods} · ${fmtDay(t.occurredAt)} ${String(t.occurredAt.getHours()).padStart(2, '0')}:${String(t.occurredAt.getMinutes()).padStart(2, '0')}${t.source === 'import' ? ' · 导入' : ''}</small></span>
     <span class="${cls}">${sign}¥${yuan(t.amountCents)}</span>
     <button class="del" type="button" title="删除">✕</button>
   </li>`;

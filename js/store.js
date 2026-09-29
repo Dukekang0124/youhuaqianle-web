@@ -1,7 +1,13 @@
 // 网页版本地账本：localStorage 真源，金额存分，零外发（页面上没有任何一条请求会带账本数据）
-// 导入/导出格式与 App 的 JSON v2 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
+// 导入/导出格式与 App 的 JSON v4 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
+import { GOODS_OTHER, goodsCategoryNames, goodsNorm } from './goods_lexicon.js';
+import { goodsCatPick } from './goods_detect.js';
+
 const KEY_TX = 'yhq.web.txs.v1';
 const KEY_META = 'yhq.web.meta.v1';
+
+// 备份是**外部输入**，来历只认这三个（与 backup.dart 的 _itemSrcs 同一张表）
+const ITEM_SRCS = new Set(['lexicon', 'learned', 'manual']);
 
 function two(n) {
   return String(n).padStart(2, '0');
@@ -27,6 +33,12 @@ function revive(raw) {
     raw: raw.raw ?? '',
     source: raw.source ?? 'manual',
     occurredAt: new Date(raw.occurredAt),
+    // v10 物品维度：旧账本根本没有这几项 ⇒ 落成空串。这不是容错，是事实——
+    // 那笔账确实没记过物品，分析页要把它算进「没记物品」那一档，而不是假装存在过。
+    item: raw.item ?? '',
+    itemNorm: raw.item_norm ?? raw.itemNorm ?? '',
+    goodsCat: raw.goods_cat ?? raw.goodsCat ?? '',
+    itemSrc: raw.item_src ?? raw.itemSrc ?? '',
   };
 }
 
@@ -39,8 +51,36 @@ export function loadTxs() {
   }
 }
 
+// 🔴 级联清空只在这一处定义（与 Dart 侧 `Tx.toMap()` 同一条纪律，docs/29 §2.1）：
+// 没有物品名就没有聚合键、大类与来历，四个一起走。漏掉一次，图上就凭空多出一格「他没买过的东西」。
+// `itemNorm` 是 `item` 的函数、不是第二个真源：这里现算，规则改了旧记录也不会留下第三种答案。
+function cascade(t) {
+  const item = (t.item ?? '').trim();
+  if (item === '') return { ...t, item: '', itemNorm: '', goodsCat: '', itemSrc: '' };
+  return { ...t, item, itemNorm: goodsNorm(item) };
+}
+
+// 备份里的物品三件套是**外部输入**，处置与 backup.dart 逐条相同：
+// 陌生大类退回兜底（图上不许出现第 15 类）、来历认不出来就置空（不许冒充他本人改的）、
+// 空物品的另外两栏一律清空。聚合键照旧现算，不读文件里那一份。
+function goodsFromBackup(e) {
+  const item = String(e.item ?? '').trim();
+  if (item === '') return { item: '', itemNorm: '', goodsCat: '', itemSrc: '' };
+  const cat = String(e.goods_cat ?? '').trim();
+  const src = String(e.item_src ?? '').trim();
+  return {
+    item,
+    itemNorm: goodsNorm(item),
+    goodsCat: goodsCategoryNames().includes(cat) ? cat : GOODS_OTHER.name,
+    itemSrc: ITEM_SRCS.has(src) ? src : '',
+  };
+}
+
 function saveTxs(txs) {
-  localStorage.setItem(KEY_TX, JSON.stringify(txs.map((t) => ({ ...t, occurredAt: t.occurredAt.toISOString() }))));
+  const clean = txs.map(cascade);
+  localStorage.setItem(KEY_TX, JSON.stringify(clean.map((t) => ({ ...t, occurredAt: t.occurredAt.toISOString() }))));
+  // 返回归一后的那份：内存里那份才是页面上渲染的那份，两边不一致就等于账本说谎
+  return clean;
 }
 
 function nextId(txs) {
@@ -49,29 +89,21 @@ function nextId(txs) {
 
 export function addTx(txs, t) {
   const row = { ...t, id: nextId(txs) + 1 };
-  const out = [...txs, row];
-  saveTxs(out);
-  return out;
+  return saveTxs([...txs, row]);
 }
 
 export function updateTx(txs, row) {
-  const out = txs.map((t) => (t.id === row.id ? { ...t, ...row } : t));
-  saveTxs(out);
-  return out;
+  return saveTxs(txs.map((t) => (t.id === row.id ? { ...t, ...row } : t)));
 }
 
 export function removeTx(txs, id) {
   const removed = txs.find((t) => t.id === id);
-  const out = txs.filter((t) => t.id !== id);
-  saveTxs(out);
-  return { txs: out, removed };
+  return { txs: saveTxs(txs.filter((t) => t.id !== id)), removed };
 }
 
 export function restoreTx(txs, removed) {
   if (!removed) return txs;
-  const out = [...txs, removed];
-  saveTxs(out);
-  return out;
+  return saveTxs([...txs, removed]);
 }
 
 // ---- 备份保鲜（网页版没有服务端：丢了账本，唯一能救回来的就是用户自己导出的那份）----
@@ -112,7 +144,10 @@ export function buildJson(txs, budgetCents) {
   return JSON.stringify(
     {
       app: '又花钱了',
-      version: 2,
+      // v4（v0.14.0）：每条多了 item / goods_cat / item_src。读侧一律按「缺字段＝没记物品」处理，
+      // 所以这个号码只是**能力标注**，不是格式门禁。网页版到这一版仍然不带 categories 段
+      // （它没有自定义分类能力），这一点与号码无关，导入侧本来就按「没有这一段＝没停用过」处理。
+      version: 4,
       exported_at: localTime(new Date()),
       budget_cents: budgetCents,
       transactions: txs.map((t) => ({
@@ -123,6 +158,10 @@ export function buildJson(txs, budgetCents) {
         raw: t.raw,
         source: t.source,
         occurred_at: localTime(t.occurredAt),
+        // 空物品不写键（同 backup.dart）：写了「item":""」等于把「没记」变成一个值，
+        // 覆盖率统计就分不清是他留空还是机器根本没跑。聚合键 item_norm 永远不写——
+        // 它是 item 的函数，进文件就是第二个真源。
+        ...(t.item ? { item: t.item, goods_cat: t.goodsCat, item_src: t.itemSrc } : {}),
       })),
     },
     null,
@@ -188,6 +227,7 @@ export function parseImportJson(text) {
       raw: e.raw ?? '',
       source: e.source ?? 'import',
       occurredAt: when,
+      ...goodsFromBackup(e),
     });
   }
   return { rows: out, skipped };
@@ -206,4 +246,36 @@ export function importTxs(txs, rows) {
     added++;
   }
   return { txs: next, added };
+}
+
+// ---- 这台设备「学过」什么：网页版没有 goods_learning 表，学习信号从账本现算 ----
+// App 侧那张表是持久化的（账删了意图还在），网页版只在账还在时认得出——这一点如实写在这里，
+// 而不是伪装成两边等价。裁决函数复用 `goodsCatPick`，平手次序与 App 同一个答案。
+export function goodsKnownItems(txs) {
+  const byNorm = new Map();
+  for (const t of txs) {
+    if (!t.item) continue;
+    const n = t.itemNorm || goodsNorm(t.item);
+    if (!byNorm.has(n)) byNorm.set(n, t.item);
+  }
+  return [...byNorm.values()].filter((n) => [...n].length >= 2)
+    .sort((a, b) => [...b].length - [...a].length);
+}
+
+export function goodsCatSuggestions(txs) {
+  const tally = {};
+  for (const t of txs) {
+    if (!t.item || !t.goodsCat) continue;
+    const n = t.itemNorm || goodsNorm(t.item);
+    const cell = (tally[n] ??= {});
+    const cur = cell[t.goodsCat] ?? { uses: 0, over: false };
+    // 只有他亲手改过的那笔算 user_override：机器的 lexicon/learned 来源不该把自己的猜测记成他的判断
+    cell[t.goodsCat] = { uses: cur.uses + 1, over: cur.over || t.itemSrc === 'manual' };
+  }
+  const out = {};
+  for (const [n, byCat] of Object.entries(tally)) {
+    const pick = goodsCatPick(byCat);
+    if (pick) out[n] = pick;
+  }
+  return out;
 }

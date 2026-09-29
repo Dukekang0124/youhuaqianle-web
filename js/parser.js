@@ -1,6 +1,7 @@
 // 四要素解析引擎 —— 1:1 移植自 app/lib/core/parser.dart
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
 import { cn2num, cnNumChars, normalizeText } from './cn.js';
+import { detectGoods } from './goods_detect.js';
 import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS } from './lexicon.js';
 
 const CAT = `[${cnNumChars}]`;
@@ -159,7 +160,7 @@ export function implicitSplit(t) {
   return out;
 }
 
-export function parseSegment(seg, now) {
+export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {
   const amt = findAmount(seg);
   const hasPayVerb = PAY_VERBS.some((w) => seg.includes(w));
   const mer = findMerchant(seg);
@@ -167,6 +168,8 @@ export function parseSegment(seg, now) {
   if (!amt && !hasPayVerb && !mer.name) return null;
   const cat = findCategory(seg);
   const time = findTime(seg, now);
+  // 物品维度独立抽（docs/29 FR-1）：认不出就是空串，绝不拿场景分类冒充物品
+  const goods = detectGoods(seg, knownItems, learnedCats);
   return {
     raw: seg,
     amountCents: amt ? amt.cents : null,
@@ -178,6 +181,11 @@ export function parseSegment(seg, now) {
     merchantConf: mer.conf,
     occurredAt: time.ts,
     timeConf: time.conf,
+    item: goods ? goods.item : '',
+    itemNorm: goods ? goods.itemNorm : '',
+    goodsCat: goods ? goods.goodsCat : '',
+    itemSrc: goods ? goods.src : '',
+    itemConf: goods ? goods.conf : 0,
   };
 }
 
@@ -186,7 +194,7 @@ function hasAmountLike(part) {
   return new RegExp(CAT).test(part) && findAmount(part) !== null;
 }
 
-export function parseText(text, now) {
+export function parseText(text, now, knownItems = [], learnedCats = {}) {
   let t = normalizeText(text);
   t = t.replace(/然后|接着|还有|加上|再来/g, '，').replace(/。/g, '，');
   t = implicitSplit(t);
@@ -205,5 +213,7 @@ export function parseText(text, now) {
     }
   }
   if (pending.length) merged.push(pending.trim());
-  return merged.map((s) => parseSegment(s, now)).filter(Boolean);
+  return merged
+    .map((s) => parseSegment(s, now, knownItems, learnedCats))
+    .filter(Boolean);
 }
