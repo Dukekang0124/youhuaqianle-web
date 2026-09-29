@@ -1,5 +1,5 @@
 // 网页版本地账本：localStorage 真源，金额存分，零外发（页面上没有任何一条请求会带账本数据）
-// 导入/导出格式与 App 的 JSON v4 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
+// 导入/导出格式与 App 的 JSON v5 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
 import { GOODS_OTHER, goodsCategoryNames, goodsNorm } from './goods_lexicon.js';
 import { goodsCatPick } from './goods_detect.js';
 
@@ -23,6 +23,14 @@ export function parseLocalTime(s) {
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0));
 }
 
+// v11 附属物品（docs/30 FR-4）：只认字符串数组，别的形态（缺键、半个对象、手改过的文件）
+// 一律当「没有」——这一串只多在界面上显示几个名词，为它把整行账跳掉是本末倒置。
+function extrasList(raw) {
+  return Array.isArray(raw)
+    ? raw.filter((x) => typeof x === 'string' && x.trim() !== '').map((x) => x.trim())
+    : [];
+}
+
 function revive(raw) {
   return {
     id: raw.id,
@@ -39,6 +47,9 @@ function revive(raw) {
     itemNorm: raw.item_norm ?? raw.itemNorm ?? '',
     goodsCat: raw.goods_cat ?? raw.goodsCat ?? '',
     itemSrc: raw.item_src ?? raw.itemSrc ?? '',
+    // v11 附属物品（docs/30 FR-4）：页面上存的那份用的是驼峰，备份文件用的是 snake_case，
+    // 两个都得认——刷新一次页面就把「牙刷」忘掉，等于这台设备的账自己说了不算。
+    itemExtras: extrasList(raw.itemExtras ?? raw.item_extra),
   };
 }
 
@@ -54,18 +65,30 @@ export function loadTxs() {
 // 🔴 级联清空只在这一处定义（与 Dart 侧 `Tx.toMap()` 同一条纪律，docs/29 §2.1）：
 // 没有物品名就没有聚合键、大类与来历，四个一起走。漏掉一次，图上就凭空多出一格「他没买过的东西」。
 // `itemNorm` 是 `item` 的函数、不是第二个真源：这里现算，规则改了旧记录也不会留下第三种答案。
+// 附属那串（v11 · docs/30 FR-4）也挂在同一个判断上：主物品空 ⇒ 附属空，主物品不空 ⇒ 把与它
+// 同名的那条剔掉。Dart 侧这段规则叫 `Tx.goodsExtras`，两处各写一遍就会有一处先漂。
 function cascade(t) {
   const item = (t.item ?? '').trim();
-  if (item === '') return { ...t, item: '', itemNorm: '', goodsCat: '', itemSrc: '' };
-  return { ...t, item, itemNorm: goodsNorm(item) };
+  if (item === '') {
+    return { ...t, item: '', itemNorm: '', goodsCat: '', itemSrc: '', itemExtras: [] };
+  }
+  const norm = goodsNorm(item);
+  return {
+    ...t,
+    item,
+    itemNorm: norm,
+    itemExtras: [...new Set(extrasList(t.itemExtras).filter((n) => n !== norm))].sort(),
+  };
 }
 
 // 备份里的物品三件套是**外部输入**，处置与 backup.dart 逐条相同：
 // 陌生大类退回兜底（图上不许出现第 15 类）、来历认不出来就置空（不许冒充他本人改的）、
 // 空物品的另外两栏一律清空。聚合键照旧现算，不读文件里那一份。
+// v5 的 item_extra（docs/30 FR-4）：文件里那一串是聚合键数组，原样收下；
+// 「主物品空不空」这一刀不在这里判，cascade 一处说了算（与 Dart 的 Tx.goodsExtras 同一口径）。
 function goodsFromBackup(e) {
   const item = String(e.item ?? '').trim();
-  if (item === '') return { item: '', itemNorm: '', goodsCat: '', itemSrc: '' };
+  if (item === '') return { item: '', itemNorm: '', goodsCat: '', itemSrc: '', itemExtras: [] };
   const cat = String(e.goods_cat ?? '').trim();
   const src = String(e.item_src ?? '').trim();
   return {
@@ -73,6 +96,7 @@ function goodsFromBackup(e) {
     itemNorm: goodsNorm(item),
     goodsCat: goodsCategoryNames().includes(cat) ? cat : GOODS_OTHER.name,
     itemSrc: ITEM_SRCS.has(src) ? src : '',
+    itemExtras: extrasList(e.item_extra),
   };
 }
 
@@ -144,10 +168,12 @@ export function buildJson(txs, budgetCents) {
   return JSON.stringify(
     {
       app: '又花钱了',
-      // v4（v0.14.0）：每条多了 item / goods_cat / item_src。读侧一律按「缺字段＝没记物品」处理，
-      // 所以这个号码只是**能力标注**，不是格式门禁。网页版到这一版仍然不带 categories 段
-      // （它没有自定义分类能力），这一点与号码无关，导入侧本来就按「没有这一段＝没停用过」处理。
-      version: 4,
+      // v4（v0.14.0）：每条多了 item / goods_cat / item_src。
+      // v5（v0.14.2）：多了 item_extra（docs/30 FR-4，一句里并列说到的其它物品）。
+      // 读侧一律按「缺字段＝没记」处理，所以这个号码只是**能力标注**，不是格式门禁。
+      // 网页版到这一版仍然不带 categories 段（它没有自定义分类能力），这一点与号码无关，
+      // 导入侧本来就按「没有这一段＝没停用过」处理。
+      version: 5,
       exported_at: localTime(new Date()),
       budget_cents: budgetCents,
       transactions: txs.map((t) => ({
@@ -161,7 +187,10 @@ export function buildJson(txs, budgetCents) {
         // 空物品不写键（同 backup.dart）：写了「item":""」等于把「没记」变成一个值，
         // 覆盖率统计就分不清是他留空还是机器根本没跑。聚合键 item_norm 永远不写——
         // 它是 item 的函数，进文件就是第二个真源。
+        // item_extra 相反：那一串不是 item 的函数（第二样叫什么只有他说过才知道），必须写。
+        // 形态与 App 逐字相同（聚合键数组、没有附属就不写键），所以两边导出的文件互相贴得回去。
         ...(t.item ? { item: t.item, goods_cat: t.goodsCat, item_src: t.itemSrc } : {}),
+        ...(t.itemExtras && t.itemExtras.length ? { item_extra: t.itemExtras } : {}),
       })),
     },
     null,

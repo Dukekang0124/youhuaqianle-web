@@ -34,6 +34,19 @@ export function longestGoodsWord(seg) {
   return hit;
 }
 
+// 词表物品词在 seg 里占住的字符区间 [start, end) —— 与 Dart 的 goodsWordSpans 逐字同判据。
+// 拆笔找支付动词时先遮掉这些位置：「牙刷」里的「刷」是物品名自己的字，不遮就把
+// 「的牙膏牙刷还买了」从牙刷中间割开（docs/30 §四 FR-1 判据 ①）。每词只取第一次出现。
+export function goodsWordSpans(seg) {
+  const spans = [];
+  for (const w of GOODS_WORDS) {
+    const at = seg.indexOf(w.word);
+    if (at < 0) continue;
+    spans.push([at, at + w.word.length]);
+  }
+  return spans;
+}
+
 // 本机历史物品当动态词典：只认包含关系里的最长者，不算模糊距离。
 // 传进来的是显示形态（他第一次记下的那个写法），比的是聚合键；返回原样而不是归一后的串。
 export function longestKnownGoods(seg, known) {
@@ -104,6 +117,103 @@ export function detectGoods(seg, knownItems = [], learnedCats = {}) {
     };
   }
   return null;
+}
+
+// 附属物品那一句实话（docs/30 FR-4）：确认卡与编辑页共用同一条文案，两份各写一遍
+// 就会有一处先漂成「已识别」。返回 '' = 没话要说（不是「一切正常」的横幅）。
+// 主物品被清空时也不说：与 Dart 的 itemExtrasNote 同一判据。
+export function itemExtrasNote(extras, hasMainItem, suffix = '') {
+  if (!extras || extras.length === 0 || !hasMainItem) return '';
+  return `还说到了 ${extras.join('、')}：这句里没单独花钱，一分钱都不摊进它们${suffix}`;
+}
+
+// 并列/停顿记号：两个物品词之间**只允许**隔这些字，隔别的就不算一串（与 Dart 同表）。
+export const GOODS_COORD_JOINS = ['', '、', '，', ',', '和', '与', '或', '跟', '以及'];
+const coordJoinOk = (gap) => GOODS_COORD_JOINS.includes(gap);
+
+// 以 main 为起点向两边接出自并列的一串物品词，按他说出来的先后排序。
+function coordRun(seg, main) {
+  const occ = [];
+  for (const w of GOODS_WORDS) {
+    const at = seg.indexOf(w.word);
+    if (at < 0) continue;
+    if (servicedRightAfter(seg, at + w.word.length)) continue;
+    occ.push({ word: w, start: at, end: at + w.word.length });
+  }
+  const anchor = occ.filter((o) => o.word.word === main.word);
+  if (anchor.length === 0) return [main];
+  const run = [main];
+  let lo = anchor[0].start;
+  let hi = anchor[0].end;
+  for (let grew = true; grew; ) {
+    grew = false;
+    let right = null;
+    let left = null;
+    for (const o of occ) {
+      if (run.includes(o.word)) continue;
+      if (o.start >= hi && coordJoinOk(seg.slice(hi, o.start))) {
+        if (
+          right === null ||
+          o.start < right.start ||
+          (o.start === right.start && [...o.word.word].length > [...right.word.word].length)
+        ) right = o;
+      } else if (o.end <= lo && coordJoinOk(seg.slice(o.end, lo))) {
+        if (
+          left === null ||
+          o.end > left.end ||
+          (o.end === left.end && [...o.word.word].length > [...left.word.word].length)
+        ) left = o;
+      }
+    }
+    // 左右都接得上时先接左边：「鞋刷牙膏」里先说出口的那个才该承担金额（FR-4）
+    if (left !== null) {
+      run.push(left.word);
+      lo = left.start;
+      grew = true;
+    }
+    if (right !== null) {
+      run.push(right.word);
+      hi = right.end;
+      grew = true;
+    }
+  }
+  run.sort((a, b) => seg.indexOf(a.word) - seg.indexOf(b.word));
+  return run;
+}
+
+// 一个金额两样东西（docs/30 FR-4，v0.14.2）：与 Dart 的 detectGoodsGroup 逐字同判据。
+// 主物品进 item 并承担**全部**金额，与它紧挨着并列说到的其它物品进 itemExtras（聚合键）。
+// 附属一分钱都不摊，也不进物品榜——替他摊单价就是编一个他没报出来的数。
+// 只在「相邻」这一种形状上收；附属只从**词表**来（动态词典那条腿不做相邻扩展）。
+export function detectGoodsGroup(seg, knownItems = [], learnedCats = {}) {
+  const hit = detectGoods(seg, knownItems, learnedCats);
+  if (hit === null) return null;
+  if (hit.src !== 'lexicon') return { main: hit, extras: [] };
+  const w = longestGoodsWord(seg);
+  if (w === null || goodsDisplay(w) !== hit.item) return { main: hit, extras: [] };
+  const run = coordRun(seg, w);
+  const first = run[0];
+  let main = hit;
+  if (first.word !== w.word) {
+    const display = goodsDisplay(first);
+    main = {
+      item: display,
+      itemNorm: goodsNorm(display),
+      goodsCat: goodsCatFor(display, first.cat, learnedCats),
+      src: 'lexicon',
+      conf: 0.9,
+    };
+  }
+  // 归一后按聚合键去重：「牙刷」和「牙 刷」是同一件东西，记两遍就是重复入账
+  const extras = [];
+  const seen = new Set([goodsNorm(main.item)]);
+  for (const g of run.slice(1)) {
+    const n = goodsNorm(goodsDisplay(g));
+    if (n === '' || seen.has(n)) continue;
+    seen.add(n);
+    extras.push(n);
+  }
+  return { main, extras };
 }
 
 // 未登录词的**候选**（与 Dart 的 goodsCandidate 逐条同判据）：只变成确认卡上一颗 chip，

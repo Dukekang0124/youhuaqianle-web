@@ -8,6 +8,7 @@ export const CATEGORIES = [
       '吃', '喝', '饭', '外卖', '奶茶', '咖啡', '拿铁', '美式', '烧烤', '包子',
       '油条', '煎饼', '面条', '面馆', '早餐', '午餐', '晚餐', '夜宵', '食堂', '餐',
       '火锅', '串串', '炸鸡', '汉堡', '披萨', '麻辣烫', '沙县', '轻食', '喝酒', '请吃饭',
+      '山药',
     ],
   },
   {
@@ -24,7 +25,7 @@ export const CATEGORIES = [
     emoji: '🛍',
     words: [
       '买', '淘宝', '京东', '拼多多', '天猫', '衣服', '鞋', '包包', '日用', '超市',
-      '便利店', '杂货', '采购', '囤货', '下单',
+      '便利店', '杂货', '采购', '囤货', '下单', '鞋子',
     ],
   },
   {
@@ -145,6 +146,14 @@ export const BRANDS = [
 
 export const INCOME_WORDS = ['工资', '发薪', '报销', '入账', '收到', '中了', '返现', '利息'];
 export const REFUND_WORDS = ['退款', '退了', '退回', '退给'];
+
+// 平台/渠道词（v0.14.2 FR-7）：不参与判类、不直接入账、不当商户名，
+// 只当「换地方了」的信号（闸①，见 parser.js 的 merchantInheritable）。
+export const PLATFORM_WORDS = [
+  '拼多多', '淘宝', '天猫', '京东', '抖音', '小红书', '闲鱼', '得物', '唯品会',
+  '美团', '饿了么', '山姆', '盒马', 'Costco', '7-11', '便利店', '超市', '网上',
+  '电商', '小程序', '直播',
+];
 
 export function categoryByName(name) {
   return CATEGORIES.find((c) => c.name === name) ?? CATEGORIES[CATEGORIES.length - 1];

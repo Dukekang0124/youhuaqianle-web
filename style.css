@@ -122,6 +122,9 @@ button { font: inherit; }
 .pgrid label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--dim); }
 .pgrid input, .pgrid select { padding: 8px; font-size: 14px; }
 .warn-miss { color: var(--amber); font-size: 11px; margin-top: 6px; }
+/* 附属物品那一句（docs/30 FR-4）：与 App 确认卡同一条——我们替他猜的第二个名词，
+   不能让他只能留着，所以这一行本身可点，点一下整串去掉（一分钱都不摊，只是不再提）。 */
+.warn-miss.extras { cursor: pointer; text-decoration: underline dotted; }
 .pfoot { display: flex; gap: 8px; margin-top: 10px; }
 .pfoot button { flex: 1; padding: 9px; }
 

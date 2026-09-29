@@ -12,7 +12,7 @@ import {
   buildJson, buildCsv, parseImportJson, importTxs, localTime, backupNudge,
   goodsKnownItems, goodsCatSuggestions,
 } from './store.js';
-import { goodsCatForName, manualGoods, goodsNameProblem } from './goods_detect.js';
+import { goodsCatForName, itemExtrasNote, manualGoods, goodsNameProblem } from './goods_detect.js';
 import { GOODS_CATEGORIES, GOODS_OTHER, goodsIcon } from './goods_lexicon.js';
 
 const $ = (id) => document.getElementById(id);
@@ -106,6 +106,9 @@ function renderPending() {
     : '');
   box.innerHTML = pending.map((p, i) => {
     const miss = p.amountCents === null || p.amountCents === undefined;
+    // 附属物品那句实话（docs/30 FR-4）：与 App 确认卡同一文案、同一条判据——
+    // 主物品被清空就不说，而且这一行点一下整串去掉（他猜错了第二个名词，不该只能留着）。
+    const extrasNote = itemExtrasNote(p.itemExtras ?? [], !!p.item, '，点一下去掉');
     return `<div class="pcard" data-i="${i}">
       <p class="raw">「${esc(p.raw)}」</p>
       <div class="pgrid">
@@ -125,6 +128,7 @@ function renderPending() {
         <label style="grid-column:1/-1">时间<input data-f="when" type="datetime-local" value="${dtLocal(new Date(p.occurredAt))}"></label>
       </div>
       ${miss ? '<p class="warn-miss">没听出金额，补一下就能入账</p>' : ''}
+      ${extrasNote ? `<p class="warn-miss extras" data-a="extras" title="点一下去掉">${esc(extrasNote)}</p>` : ''}
       <div class="pfoot">
         <button class="primary" data-a="ok" type="button">入账</button>
         <button class="ghost" data-a="drop" type="button">不要这条</button>
@@ -154,6 +158,9 @@ function renderPending() {
     });
     card.querySelector('[data-a="ok"]').onclick = () => commit([i]);
     card.querySelector('[data-a="drop"]').onclick = () => { pending.splice(i, 1); renderPending(); };
+    const ex = card.querySelector('[data-a="extras"]');
+    // 点一下：整串附属作废（不落库的是我们猜的那几个名词，不是他记下的那笔账）
+    if (ex) ex.onclick = () => { pending[i].itemExtras = []; renderPending(); };
   });
   const all = box.querySelector('[data-all]');
   if (all) all.onclick = () => commit(pending.map((_, i) => i));
@@ -187,6 +194,9 @@ function commit(idxs) {
       occurredAt: p.occurredAt instanceof Date && !isNaN(p.occurredAt) ? p.occurredAt : now,
       item: g?.item ?? '', itemNorm: g?.itemNorm ?? '',
       goodsCat: g?.goodsCat ?? '', itemSrc: g?.src ?? '',
+      // 附属那一串原样交下去：级联清空与「跟主物品同名就剔掉」由 store.js 的 cascade 一处判定
+      // （与 App 的 Tx.goodsExtras 同一口径）。界面上点掉那行时这里就是空串。
+      itemExtras: (p.itemExtras ?? []).slice(),
     });
     added++;
   });
@@ -209,6 +219,7 @@ function openSheet(title, row, onSubmit) {
     <div class="field"><span>分类</span><select id="f-cat">${CATEGORIES.map((c) => `<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}</select></div>
     <div class="field"><span>商户</span><input id="f-mer" value="${esc(row?.merchant ?? '')}" placeholder="可留空"></div>
     <div class="field"><span>物品</span><input id="f-item" value="${esc(row?.item ?? '')}" placeholder="没记就是没记，可留空"></div>
+    <p class="warn-miss extras" id="f-extras" hidden title="点一下去掉"></p>
     <div class="field"><span>物品大类</span><select id="f-goods-cat">
       <option value=""${row?.item ? '' : ' selected'}>自动判断</option>${goodsOptions(row?.goodsCat ?? '')}
     </select></div>
@@ -218,6 +229,16 @@ function openSheet(title, row, onSubmit) {
   // 而 manual 在学习表里压过一切、他自己也撤不回来。
   let goodsTouched = false;
   let goodsPicked = false;
+  // 附属物品（docs/30 FR-4）：这一页没有编辑框可改它，但必须给一个「点掉」的动作——
+  // 我们替他猜的第二个名词，不能让他只能留着。落库时原样带回去，判定在 store.js 的 cascade。
+  let itemExtras = (row?.itemExtras ?? []).slice();
+  const paintExtras = () => {
+    const note = itemExtrasNote(itemExtras, $('f-item').value.trim() !== '', '，点一下去掉');
+    const el = $('f-extras');
+    el.textContent = note;
+    el.hidden = note === '';
+  };
+  $('f-extras').onclick = () => { itemExtras = []; paintExtras(); };
   $('f-type').value = row?.type ?? 'expense';
   $('f-cat').value = row?.category ?? '其他';
   // 名字一改，先前推出来的大类就作废：重推一次，别让「跑鞋」挂着「饮品」
@@ -232,12 +253,15 @@ function openSheet(title, row, onSubmit) {
     } else if (!goodsPicked) {
       sel.value = goodsCatForName(nm, learned);
     }
+    // 主物品被他清空 ⇒ 那句「还说到了…」跟着闭嘴（同一判据在两处各写一遍就会有一处先漂）
+    paintExtras();
   };
   $('f-goods-cat').onchange = () => {
     goodsPicked = true;
     goodsTouched = true;
   };
   $('f-goods-cat').disabled = (row?.item ?? '') === '';
+  paintExtras();
   $('sheet').hidden = false;
   $('sheet-ok').onclick = () => {
     const cents = Math.round(parseFloat($('f-amount').value || '0') * 100);
@@ -248,8 +272,8 @@ function openSheet(title, row, onSubmit) {
       const err = goodsNameProblem(itemName);
       if (err) { toast(err); return; }
     }
-    // 这里永远显式带上四个字段：updateTx 是合并写，漏带键等于改一笔金额把物品清不掉。
-    // 清空物品是合法决定（g 为 null ⇒ 四件一起空），不是「没填」。
+    // 这里永远显式带上五个字段：updateTx 是合并写，漏带键等于改一笔金额把物品清不掉。
+    // 清空物品是合法决定（g 为 null ⇒ 四件一起空），附属那一串也不能因为「这页没编辑框」就丢。
     onSubmit({
       amountCents: cents,
       type: $('f-type').value,
@@ -260,6 +284,7 @@ function openSheet(title, row, onSubmit) {
       itemNorm: goodsTouched ? (g?.itemNorm ?? '') : (row?.itemNorm ?? ''),
       goodsCat: goodsTouched ? (g?.goodsCat ?? '') : (row?.goodsCat ?? ''),
       itemSrc: goodsTouched ? (g?.src ?? '') : (row?.itemSrc ?? ''),
+      itemExtras: itemExtras.slice(),
     });
     closeSheet();
   };
@@ -299,7 +324,10 @@ function txRow(t) {
   const cls = t.type === 'income' ? 'amt in' : 'amt';
   // 物品跟在分类后面（与 App 明细行同一条：`' · ${goodsIcon(goods_cat)}${item}'`）。
   // 没记物品的笔不占位——写「·（无）」等于把「他没记」渲染成一种物品。
-  const goods = t.item ? ` · ${goodsIcon(t.goodsCat)}${esc(t.item)}` : '';
+  // `+N`（docs/30 FR-4）：一句里并列说到的其它物品不单独成行、也不进金额榜，
+  // 列表里只留一个计数，点进编辑页看得见全名。
+  const nExtras = (t.itemExtras ?? []).length;
+  const goods = t.item ? ` · ${goodsIcon(t.goodsCat)}${esc(t.item)}${nExtras ? `+${nExtras}` : ''}` : '';
   return `<li class="tx" data-id="${t.id}">
     <span class="emo">${c.emoji}</span>
     <span class="who"><b>${esc(t.merchant || t.category)}</b><small>${c.name}${goods} · ${fmtDay(t.occurredAt)} ${String(t.occurredAt.getHours()).padStart(2, '0')}:${String(t.occurredAt.getMinutes()).padStart(2, '0')}${t.source === 'import' ? ' · 导入' : ''}</small></span>

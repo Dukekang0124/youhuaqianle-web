@@ -1,8 +1,10 @@
 // 四要素解析引擎 —— 1:1 移植自 app/lib/core/parser.dart
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
 import { cn2num, cnNumChars, normalizeText } from './cn.js';
-import { detectGoods, longestGoodsWord } from './goods_detect.js';
-import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS } from './lexicon.js';
+import {
+  detectGoodsGroup, longestGoodsWord, goodsWordSpans,
+} from './goods_detect.js';
+import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS } from './lexicon.js';
 
 const CAT = `[${cnNumChars}]`;
 
@@ -59,12 +61,28 @@ function longestBrand(seg) {
   return hit;
 }
 
+// 真因 3（docs/30 §四 FR-3）—— 与 Dart 的 _isGoodsFragment 逐条同义：
+// 单字关键词落在更长的物品词里、且不是那个词的最后一个字（中心语在后），才不算场景证据。
+function isGoodsFragment(seg, word, spans) {
+  if ([...word].length !== 1) return false;
+  let seen = 0, buried = 0;
+  for (let at = seg.indexOf(word); at >= 0; at = seg.indexOf(word, at + 1)) {
+    seen++;
+    const end = at + 1;
+    const inside = spans.filter((s) => s[0] <= at && end <= s[1] && s[1] - s[0] > 1);
+    if (inside.length > 0 && inside.every((s) => s[1] !== end)) buried++;
+  }
+  return seen > 0 && buried === seen;
+}
+
 function longestCatWord(seg) {
+  const spans = goodsWordSpans(seg);
   let hit = null;
   for (const c of CATEGORIES) {
     if (c.name === '其他') continue;
     for (const w of c.words) {
       if (!w || !seg.includes(w)) continue;
+      if (isGoodsFragment(seg, w, spans)) continue;
       if (hit === null || w.length > hit.word.length) hit = { cat: c, word: w };
     }
   }
@@ -146,16 +164,56 @@ const AMT_UNIT_RE = new RegExp(
   'g',
 );
 
-/// 两笔金额之间那段前导文字该跟着前一笔还是后一笔 —— 与 Dart 的 `gapAttachesLeft`
-/// 逐条同义（六道出口、宁可归右不可错粘，理由写在那份真源的注释里）。
-export function gapAttachesLeft(gap, clause) {
-  if (!gap) return false;
-  if ([...gap].length > 12) return false;
-  if (/[，,、；;。！!？?\s]/.test(gap)) return false;
-  if (PAY_VERBS.some((w) => gap.includes(w))) return false;
-  if (!PAY_VERBS.some((w) => clause.includes(w))) return false;
-  if (!clause.includes('块钱')) return false;
-  return longestGoodsWord(gap) !== null;
+// 「下一笔的起势」＋支付动词；切点取整个匹配的开始，所以「还买了」一起留给右段。
+const GAP_VERB_RE = /[还又也再就]?(?:花|付|买|消费|刷|充|交|给)/g;
+
+// gap 里第一个真正的支付动词：落在词表物品词内部的那些字（牙刷的「刷」）不算他说了一个动词。
+function firstRealVerbAt(gap) {
+  const spans = goodsWordSpans(gap);
+  GAP_VERB_RE.lastIndex = 0;
+  let m;
+  while ((m = GAP_VERB_RE.exec(gap)) !== null) {
+    if (spans.some((s) => m.index >= s[0] && m.index < s[1])) continue;
+    return m.index;
+  }
+  return null;
+}
+
+/// 两笔金额之间那段文字（gap）怎么分给这两笔 —— 与 Dart 的 `splitGap` 逐条同义
+/// （三条判据与「宁可归右」的理由写在那份真源的注释里；2052 的 `gapAttachesLeft`
+/// 整段搬运已被推翻，见 docs/30 §四 FR-1）。
+export function splitGap(gap, clause) {
+  if (!gap) return { left: '', right: gap };
+  const verbAt = firstRealVerbAt(gap);
+  let left, right;
+  if (verbAt !== null) {
+    const head = gap.slice(0, verbAt);
+    if ([...head].length > 1 && head.startsWith('的')) {
+      left = head;
+      right = gap.slice(verbAt);
+    } else {
+      left = '';
+      right = gap;
+    }
+  } else if (gap.startsWith('的')) {
+    left = gap;
+    right = '';
+  } else if (longestGoodsWord(gap) !== null &&
+      clause.includes('块钱') &&
+      !/[，,、；;。！!？?\s]/.test(gap)) {
+    left = gap;
+    right = '';
+  } else {
+    left = '';
+    right = gap;
+  }
+  // ③ 归左的部分遇到标点就到此为止（与 Dart 同义）：逗号后面的字是下一笔的话
+  const sep = /[，,、；;。！!？?\s]/.exec(left);
+  if (sep) {
+    right = left.slice(sep.index) + right;
+    left = left.slice(0, sep.index);
+  }
+  return { left, right };
 }
 
 export function implicitSplit(t) {
@@ -166,9 +224,9 @@ export function implicitSplit(t) {
   for (let i = 0; i < ms.length; i++) {
     const end = ms[i].index + ms[i][0].length;
     let cut = end;
-    if (i !== ms.length - 1 &&
-        gapAttachesLeft(t.slice(end, ms[i + 1].index), t.slice(last, end))) {
-      cut = ms[i + 1].index;
+    if (i !== ms.length - 1) {
+      cut = end +
+          splitGap(t.slice(end, ms[i + 1].index), t.slice(last, end)).left.length;
     }
     out += t.slice(last, cut);
     if (i !== ms.length - 1) out += '，';
@@ -186,8 +244,11 @@ export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {
   if (!amt && !hasPayVerb && !mer.name) return null;
   const cat = findCategory(seg);
   const time = findTime(seg, now);
-  // 物品维度独立抽（docs/29 FR-1）：认不出就是空串，绝不拿场景分类冒充物品
-  const goods = detectGoods(seg, knownItems, learnedCats);
+  // 物品维度独立抽（docs/29 FR-1）：认不出就是空串，绝不拿场景分类冒充物品。
+  // grp（docs/30 FR-4）：一个金额并列说到两样东西时，主物品承担全部金额，
+  // 其余那几个名词进 itemExtras——不进金额、不进物品榜。
+  const grp = detectGoodsGroup(seg, knownItems, learnedCats);
+  const goods = grp ? grp.main : null;
   return {
     raw: seg,
     amountCents: amt ? amt.cents : null,
@@ -204,53 +265,63 @@ export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {
     goodsCat: goods ? goods.goodsCat : '',
     itemSrc: goods ? goods.src : '',
     itemConf: goods ? goods.conf : 0,
+    itemExtras: grp ? grp.extras : [],
     merchantInherited: false,
   };
 }
 
-// 商户继承（与 Dart `coordMarks`/`storeCueWords`/`inheritMerchants` 同义）：
-// 只有被「和/跟/与/以及」这类**名词并列**连词接上的两笔才共店，且这一笔里不许出现
-// 他自己报出的另一家店（地点线索词）。源头只认「听到的」那家店，不滚猜测。
-export const COORD_MARKS = ['以及', '和', '跟', '与', '＋', '+', '&'];
-
-export function coordTail(s) {
-  const t = s.trim();
-  return COORD_MARKS.some((m) => t.endsWith(m));
-}
-
-export function coordHead(s) {
-  const t = s.trim();
-  return COORD_MARKS.some((m) => t.startsWith(m));
-}
-
+// 商户句级作用域（与 Dart `storeCueWords`/`platformWords`/`merchantInheritable`/
+// `applyMerchantScopes` 同义）：一次语音输入切出来的全部笔共享一段作用域，源头只认
+// 「听到的」那家店，往下盖直到被三道闸任一关闭（换地点词/换平台词/换场景）。
 export const STORE_CUE_WORDS = [
   '店', '超市', '商场', '市场', '卖场', '摊', '网上', '网购', '电商', '小程序',
   '直播', '门口', '楼下', '隔壁', '公司', '学校', '家里', '医院', '药店',
   '餐厅', '饭店', '食堂', '馆', '吧', '厅', '驿站', '理发', '健身',
 ];
 
+// 闸②用到的「到场才完得成的事」（与 Dart `_onSiteScenes` 同义）：吃饭、出行、住。
+// 购物/数码/教育/医疗/娱乐都是「商品」，一家电商平台全能卖，跨到它们不算换地方。
+export const ON_SITE_SCENES = ['餐饮', '交通', '居住'];
+
 export function merchantInheritable(seg) {
   const t = seg.trim();
   if (!t) return false;
-  return !STORE_CUE_WORDS.some((w) => t.includes(w));
+  return !STORE_CUE_WORDS.some((w) => t.includes(w)) &&
+    !PLATFORM_WORDS.some((w) => t.includes(w));
 }
 
-export function inheritMerchants(es) {
+export function applyMerchantScopes(es) {
   let filled = 0;
-  let heard = '';
-  for (let i = 0; i < es.length; i++) {
-    const e = es[i];
-    if (!e.merchant) {
-      const joined = i > 0 && (coordTail(es[i - 1].raw) || coordHead(e.raw));
-      if (heard && joined && merchantInheritable(e.raw)) {
-        e.merchant = heard;
-        e.merchantInherited = true;
-        e.merchantConf = 0.45;
-        filled++;
+  let scope = '';
+  let scopeCat = '';
+  for (const e of es) {
+    if (e.merchant) {
+      // 闸③：只有他自己说出来的店名才配当源头，继承来的不再续一段
+      if (!e.merchantInherited) {
+        scope = e.merchant;
+        const w = longestCatWord(e.raw);
+        scopeCat = w ? w.cat.name : '';
       }
       continue;
     }
-    if (!e.merchantInherited) heard = e.merchant;
+    if (!scope) continue;
+    if (!merchantInheritable(e.raw)) {
+      scope = '';
+      scopeCat = '';
+      continue;
+    }
+    // 闸②：本笔说的是「到那儿去才完得成的事」，而且和源头不是一件事 ⇒ 他已经换了地方
+    const own = longestCatWord(e.raw);
+    if (own && scopeCat && own.cat.name !== scopeCat &&
+        ON_SITE_SCENES.includes(own.cat.name)) {
+      scope = '';
+      scopeCat = '';
+      continue;
+    }
+    e.merchant = scope;
+    e.merchantInherited = true;
+    e.merchantConf = 0.45;
+    filled++;
   }
   return filled;
 }
@@ -282,6 +353,7 @@ export function parseText(text, now, knownItems = [], learnedCats = {}) {
   const es = merged
     .map((s) => parseSegment(s, now, knownItems, learnedCats))
     .filter(Boolean);
-  inheritMerchants(es);
+  // 一次语音输入 = 一段作用域：本句里自己没报店的笔沿用听到的那家店
+  applyMerchantScopes(es);
   return es;
 }
