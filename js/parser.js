@@ -1,7 +1,7 @@
 // 四要素解析引擎 —— 1:1 移植自 app/lib/core/parser.dart
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
 import { cn2num, cnNumChars, normalizeText } from './cn.js';
-import { detectGoods } from './goods_detect.js';
+import { detectGoods, longestGoodsWord } from './goods_detect.js';
 import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS } from './lexicon.js';
 
 const CAT = `[${cnNumChars}]`;
@@ -146,15 +146,33 @@ const AMT_UNIT_RE = new RegExp(
   'g',
 );
 
+/// 两笔金额之间那段前导文字该跟着前一笔还是后一笔 —— 与 Dart 的 `gapAttachesLeft`
+/// 逐条同义（六道出口、宁可归右不可错粘，理由写在那份真源的注释里）。
+export function gapAttachesLeft(gap, clause) {
+  if (!gap) return false;
+  if ([...gap].length > 12) return false;
+  if (/[，,、；;。！!？?\s]/.test(gap)) return false;
+  if (PAY_VERBS.some((w) => gap.includes(w))) return false;
+  if (!PAY_VERBS.some((w) => clause.includes(w))) return false;
+  if (!clause.includes('块钱')) return false;
+  return longestGoodsWord(gap) !== null;
+}
+
 export function implicitSplit(t) {
   const ms = [...t.matchAll(AMT_UNIT_RE)];
   if (ms.length < 2) return t;
   let out = '';
   let last = 0;
   for (let i = 0; i < ms.length; i++) {
-    out += t.slice(last, ms[i].index + ms[i][0].length);
+    const end = ms[i].index + ms[i][0].length;
+    let cut = end;
+    if (i !== ms.length - 1 &&
+        gapAttachesLeft(t.slice(end, ms[i + 1].index), t.slice(last, end))) {
+      cut = ms[i + 1].index;
+    }
+    out += t.slice(last, cut);
     if (i !== ms.length - 1) out += '，';
-    last = ms[i].index + ms[i][0].length;
+    last = cut;
   }
   out += t.slice(last);
   return out;
@@ -186,7 +204,55 @@ export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {
     goodsCat: goods ? goods.goodsCat : '',
     itemSrc: goods ? goods.src : '',
     itemConf: goods ? goods.conf : 0,
+    merchantInherited: false,
   };
+}
+
+// 商户继承（与 Dart `coordMarks`/`storeCueWords`/`inheritMerchants` 同义）：
+// 只有被「和/跟/与/以及」这类**名词并列**连词接上的两笔才共店，且这一笔里不许出现
+// 他自己报出的另一家店（地点线索词）。源头只认「听到的」那家店，不滚猜测。
+export const COORD_MARKS = ['以及', '和', '跟', '与', '＋', '+', '&'];
+
+export function coordTail(s) {
+  const t = s.trim();
+  return COORD_MARKS.some((m) => t.endsWith(m));
+}
+
+export function coordHead(s) {
+  const t = s.trim();
+  return COORD_MARKS.some((m) => t.startsWith(m));
+}
+
+export const STORE_CUE_WORDS = [
+  '店', '超市', '商场', '市场', '卖场', '摊', '网上', '网购', '电商', '小程序',
+  '直播', '门口', '楼下', '隔壁', '公司', '学校', '家里', '医院', '药店',
+  '餐厅', '饭店', '食堂', '馆', '吧', '厅', '驿站', '理发', '健身',
+];
+
+export function merchantInheritable(seg) {
+  const t = seg.trim();
+  if (!t) return false;
+  return !STORE_CUE_WORDS.some((w) => t.includes(w));
+}
+
+export function inheritMerchants(es) {
+  let filled = 0;
+  let heard = '';
+  for (let i = 0; i < es.length; i++) {
+    const e = es[i];
+    if (!e.merchant) {
+      const joined = i > 0 && (coordTail(es[i - 1].raw) || coordHead(e.raw));
+      if (heard && joined && merchantInheritable(e.raw)) {
+        e.merchant = heard;
+        e.merchantInherited = true;
+        e.merchantConf = 0.45;
+        filled++;
+      }
+      continue;
+    }
+    if (!e.merchantInherited) heard = e.merchant;
+  }
+  return filled;
 }
 
 function hasAmountLike(part) {
@@ -213,7 +279,9 @@ export function parseText(text, now, knownItems = [], learnedCats = {}) {
     }
   }
   if (pending.length) merged.push(pending.trim());
-  return merged
+  const es = merged
     .map((s) => parseSegment(s, now, knownItems, learnedCats))
     .filter(Boolean);
+  inheritMerchants(es);
+  return es;
 }

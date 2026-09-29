@@ -8,14 +8,27 @@
 //    不该让「三轮车」因为离「三脚架」近就被抽出来。
 import {
   GOODS_OTHER, GOODS_WORDS, goodsCategoryNames, goodsCatOfDisplay, goodsDisplay, goodsNorm,
+  AMOUNT_CHARS,
 } from './goods_lexicon.js';
 
 // 词表最长命中优先（与 parser 的 longestBrand / longestCatWord 同一条纪律）。
 // 取第一个命中会按词表书写顺序漂移——同一句话换台设备就换了物品名，那是最脏的不可复现。
+// 服务动词闸（与 Dart 的 _servicedRightAfter 逐字同判据）：「给电瓶车充电三块」里的电瓶车
+// 是被伺候的东西，不是买回来的东西——把它抽成物品等于在账上凭空多出一辆车。
+const GOODS_SERVICE_VERBS = ['充电', '维修', '保养', '加油', '洗车', '打蜡', '补胎', '贴膜', '托运'];
+
+function servicedRightAfter(seg, end) {
+  if (end >= seg.length) return false;
+  const rest = seg.slice(end);
+  return GOODS_SERVICE_VERBS.some((v) => rest.startsWith(v));
+}
+
 export function longestGoodsWord(seg) {
   let hit = null;
   for (const w of GOODS_WORDS) {
-    if (!seg.includes(w.word)) continue;
+    const at = seg.indexOf(w.word);
+    if (at < 0) continue;
+    if (servicedRightAfter(seg, at + w.word.length)) continue;
     if (hit === null || [...w.word].length > [...hit.word].length) hit = w;
   }
   return hit;
@@ -91,6 +104,50 @@ export function detectGoods(seg, knownItems = [], learnedCats = {}) {
     };
   }
   return null;
+}
+
+// 未登录词的**候选**（与 Dart 的 goodsCandidate 逐条同判据）：只变成确认卡上一颗 chip，
+// 他不点就不落库——所以这一把可以比词表激进，但形态只认「买/换/修/办/充/订/租 + 2~4 字体词段」。
+export const GOODS_CANDIDATE_VERBS = ['买', '换', '修', '办', '充', '订', '租'];
+export const GOODS_VAGUE_WORDS = ['东西', '玩意', '教训', '什么', '啥', '其他', '别的', '这些', '那些', '一点', '空气', '经验'];
+const CAND_LEAD = /^(了|的|点|些)+/;
+const CAND_QTY = /^(一|二|两|三|四|五|六|七|八|九|十|几|半)?(个|件|台|副|双|瓶|盒|份|袋|箱|包|杯|条|支|本|顶|把|块|张)/;
+const CAND_MONEY = /^\d+(\.\d+)?[块元]?[钱角分毛]?/;
+const CAND_STOP = /[，,。.!！?？、;；:：\s和跟与或的]/;
+
+export function goodsCandidate(seg, muted = []) {
+  // 按下标走，不用 indexOf：同一个动词在一句里出现两次时（「买了X又买了Y」），
+  // indexOf 永远回到第一个位置，两次判的是同一段——那是 Dart 侧明确避免的漂移。
+  for (let i = 0; i < seg.length; i++) {
+    if (!GOODS_CANDIDATE_VERBS.includes(seg[i])) continue;
+    const cand = nounAfterVerb(seg.slice(i + 1));
+    if (cand === null) continue;
+    if (muted.includes(goodsNorm(cand))) continue;
+    if (longestGoodsWord(cand) !== null) continue; // 词表认得的词不再问第二遍
+    return cand;
+  }
+  return null;
+}
+
+function nounAfterVerb(rest) {
+  let s = rest;
+  for (let guard = 0; guard < 4; guard++) {
+    const before = s.length;
+    s = s.replace(CAND_LEAD, '').replace(CAND_MONEY, '').replace(CAND_QTY, '');
+    if (s.length === before) break;
+  }
+  if (s === '') return null;
+  let word = '';
+  for (const ch of s) {
+    // 段首就是数字/金额字 → 这里没有名词
+    if (word === '' && AMOUNT_CHARS.includes(ch)) return null;
+    if (AMOUNT_CHARS.includes(ch) || CAND_STOP.test(ch)) break;
+    word += ch;
+    if ([...word].length > 4) return null;
+  }
+  if ([...word].length < 2) return null;
+  if (GOODS_VAGUE_WORDS.some((v) => word.includes(v))) return null;
+  return word;
 }
 
 // 「他刚敲下名字、还没点大类」时该显示哪一类：词典 → 学习表 → 兜底。
