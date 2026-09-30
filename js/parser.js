@@ -179,6 +179,23 @@ function firstRealVerbAt(gap) {
   return null;
 }
 
+/// 「下一句又起头了」的三个形状：主语重起、换笔的起势词、「在 + 地点或平台」。
+const NEXT_CLAUSE_RE = /(?:我|咱|俺|还|又|也|再|就|然后|接着|顺便|另外|在)/g;
+
+/// gap 里第一个新句起点在第几字；第 0 字不算（那正是本笔物品的开头）。
+/// 与 firstRealVerbAt 同一套遮罩：词表物品名里的「在」不算换笔。
+function nextClauseAt(gap) {
+  const spans = goodsWordSpans(gap);
+  NEXT_CLAUSE_RE.lastIndex = 0;
+  let m;
+  while ((m = NEXT_CLAUSE_RE.exec(gap)) !== null) {
+    if (m.index === 0) continue;
+    if (spans.some((s) => m.index >= s[0] && m.index < s[1])) continue;
+    return m.index;
+  }
+  return null;
+}
+
 /// 两笔金额之间那段文字（gap）怎么分给这两笔 —— 与 Dart 的 `splitGap` 逐条同义
 /// （三条判据与「宁可归右」的理由写在那份真源的注释里；2052 的 `gapAttachesLeft`
 /// 整段搬运已被推翻，见 docs/30 §四 FR-1）。
@@ -191,6 +208,12 @@ export function splitGap(gap, clause) {
     if ([...head].length > 1 && head.startsWith('的')) {
       left = head;
       right = gap.slice(verbAt);
+    } else if (verbAt === 0) {
+      // 2053 真机新错：动词开头的 gap 是「本笔刚说完的东西＋下一笔的起势」，
+      // 到新句起点处裁开；段里没有新句起点（「买面包」）照旧整段归右。
+      const at = nextClauseAt(gap);
+      left = at === null ? '' : gap.slice(0, at);
+      right = at === null ? gap : gap.slice(at);
     } else {
       left = '';
       right = gap;
