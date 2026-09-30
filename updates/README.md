@@ -3,8 +3,8 @@
 与网页版站点同仓库、互不打扰：
 
 - `version.json` — 客户端读取的更新清单（`web` / `apk` 两段，客户端只用 `apk`）
-- `youhuaqianle-v0.14.3-arm64.apk` — 当前待发的 arm64 release 包（50355998 B / md5 07f7337d34b2f1e408854b171ac9e4ea）
-- `parts/` — 同一个包的 3 个分块（每块 ≤ 18MB），`version.json` 的 `apk.parts` 逐块记了长度与 SHA-256
+- `youhuaqianle-v0.14.4-arm64.apk` — 当前待发的 arm64 release 包（50356042 B / md5 c7ae222c72f609b9273cc4fc6b308ca1）
+- `parts/` — 同一个包的 7 个分块（每块 ≤ 8MB），`version.json` 的 `apk.parts` 逐块记了长度与 SHA-256
   客户端**有清单就走分块**：一次大失败切成几次小失败，坏哪块补哪块，最多重取一块而不是整包 50MB
 
 `version.json` 里的 `url` 是**裸文件名**，客户端按「清单所在目录 + 文件名」拼下载地址，
