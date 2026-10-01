@@ -23,10 +23,52 @@ function servicedRightAfter(seg, end) {
   return GOODS_SERVICE_VERBS.some((v) => rest.startsWith(v));
 }
 
+// 中英混说（v0.14.7）：词表里那串字在 seg 里第几个字上——与 Dart 的 wordAt 逐条同义。
+// 中文词逐字比；以 ASCII 字母开头的词（iphone / macbook / kindle）大小写都认，
+// 并且多一道词边界闸（「pad」不许在「ipad」里命中）。
+// 不整串 toLowerCase：小写化对个别字符会把 1 个 code unit 变成 2 个，而这个下标随后
+// 要喂给 substring 与 goodsWordSpans——下标一错就把他的句子从中间割开。
+function startsAsciiLetter(w) {
+  if (!w) return false;
+  const c = w.charCodeAt(0);
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+}
+
+function isAsciiAlnum(c) {
+  return (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+}
+
+function fold(c) {
+  return c >= 65 && c <= 90 ? c + 32 : c;
+}
+
+export function wordAt(seg, word, from = 0) {
+  if (!startsAsciiLetter(word)) return seg.indexOf(word, from);
+  for (let i = from; i + word.length <= seg.length; i++) {
+    let ok = true;
+    for (let j = 0; j < word.length; j++) {
+      if (fold(seg.charCodeAt(i + j)) !== fold(word.charCodeAt(j))) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const before = i > 0 ? seg.charCodeAt(i - 1) : 0;
+    const after = i + word.length < seg.length ? seg.charCodeAt(i + word.length) : 0;
+    if (isAsciiAlnum(before) || isAsciiAlnum(after)) continue;
+    return i;
+  }
+  return -1;
+}
+
+export function wordStartsAt(text, at, word) {
+  return at >= 0 && at < text.length && wordAt(text, word, at) === at;
+}
+
 export function longestGoodsWord(seg) {
   let hit = null;
   for (const w of GOODS_WORDS) {
-    const at = seg.indexOf(w.word);
+    const at = wordAt(seg, w.word);
     if (at < 0) continue;
     if (servicedRightAfter(seg, at + w.word.length)) continue;
     if (hit === null || [...w.word].length > [...hit.word].length) hit = w;
@@ -40,11 +82,28 @@ export function longestGoodsWord(seg) {
 export function goodsWordSpans(seg) {
   const spans = [];
   for (const w of GOODS_WORDS) {
-    const at = seg.indexOf(w.word);
+    const at = wordAt(seg, w.word);
     if (at < 0) continue;
     spans.push([at, at + w.word.length]);
   }
   return spans;
+}
+
+// 某个位置起，词表里最长的那个物品词有多长（0 = 这里不是一样东西的名字）。
+// 与 Dart 的 goodsWordLenAt 逐字同判据：≥2 字（单字纪律）、同一把服务动词闸、取最长。
+// 「按数字拆笔」要确认数字后面紧跟的真是件东西（18000 的**电脑**），而不是一串地址、
+// 一个日期或半句口语（docs/32 之外的 v0.14.7 新增，见 parser.js 的 itemAnchorSplit）。
+export function goodsWordLenAt(text, at) {
+  if (at < 0 || at >= text.length) return 0;
+  let len = 0;
+  for (const w of GOODS_WORDS) {
+    const rl = [...w.word].length;
+    if (rl < 2) continue; // 与词表同一条单字纪律
+    if (!wordStartsAt(text, at, w.word)) continue;
+    if (servicedRightAfter(text, at + w.word.length)) continue;
+    if (rl > len) len = rl;
+  }
+  return len;
 }
 
 // 本机历史物品当动态词典：只认包含关系里的最长者，不算模糊距离。
@@ -135,7 +194,7 @@ const coordJoinOk = (gap) => GOODS_COORD_JOINS.includes(gap);
 function coordRun(seg, main) {
   const occ = [];
   for (const w of GOODS_WORDS) {
-    const at = seg.indexOf(w.word);
+    const at = wordAt(seg, w.word);
     if (at < 0) continue;
     if (servicedRightAfter(seg, at + w.word.length)) continue;
     occ.push({ word: w, start: at, end: at + w.word.length });
@@ -177,7 +236,7 @@ function coordRun(seg, main) {
       grew = true;
     }
   }
-  run.sort((a, b) => seg.indexOf(a.word) - seg.indexOf(b.word));
+  run.sort((a, b) => wordAt(seg, a.word) - wordAt(seg, b.word));
   return run;
 }
 

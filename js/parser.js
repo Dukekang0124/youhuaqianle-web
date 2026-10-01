@@ -2,13 +2,40 @@
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
 import { cn2num, cnNumChars, normalizeText } from './cn.js';
 import {
-  detectGoodsGroup, longestGoodsWord, goodsWordSpans,
+  detectGoodsGroup, longestGoodsWord, goodsWordSpans, goodsWordLenAt, wordAt,
 } from './goods_detect.js';
 import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS } from './lexicon.js';
 
 const CAT = `[${cnNumChars}]`;
 
+// 「5万2」「23万」「1.5万」「8w」：阿拉伯数字 + 中文位数单位。
+// 🔴 必须排在所有其它金额规则之前（与 Dart 的 `_findMagnitude` 同一条理由）：
+// 「淘宝花了5万2买沙发」在第 1 条匹配不上，掉到第 4 条「裸数字取最后一个」会把 52000 记成 ¥2。
+const MAGNITUDE_RE =
+  /([0-9]+(?:\.[0-9]{1,2})?)\s*([百千万]|[wW](?![a-zA-Z]))(?:\s*(?:([0-9]|[一二两三四五六七八九])\s*([百千])?))?/;
+
+function magUnit(c) {
+  if (c === '百') return 100;
+  if (c === '千') return 1000;
+  return 10000; // 万 / w / W
+}
+
+function findMagnitude(seg) {
+  const m = seg.match(MAGNITUDE_RE);
+  if (!m) return null;
+  const unit = magUnit(m[2]);
+  let v = parseFloat(m[1]) * unit;
+  if (m[3] !== undefined) {
+    const d = cn2num(m[3]);
+    if (d !== null) v += d * (m[4] !== undefined ? magUnit(m[4]) : Math.floor(unit / 10));
+  }
+  if (v <= 0) return null;
+  return { cents: Math.round(v * 100), conf: 0.95 };
+}
+
 export function findAmount(seg) {
+  const mag = findMagnitude(seg);
+  if (mag) return mag;
   let m;
   // 1. 阿拉伯 + 单位
   m = seg.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:块钱|元|块|圆|米)(?![0-9])/);
@@ -81,9 +108,13 @@ function longestCatWord(seg) {
   for (const c of CATEGORIES) {
     if (c.name === '其他') continue;
     for (const w of c.words) {
-      if (!w || !seg.includes(w)) continue;
+      // 与物品词同一把匹配闸（goods_detect.wordAt）：ASCII 词大小写都认，
+      // 但不许从更长的拉丁串里抠出来（与 Dart 同一条理由）。
+      if (!w || wordAt(seg, w) < 0) continue;
       if (isGoodsFragment(seg, w, spans)) continue;
-      if (hit === null || w.length > hit.word.length) hit = { cat: c, word: w };
+      if (hit === null || [...w].length > [...hit.word].length) {
+        hit = { cat: c, word: w };
+      }
     }
   }
   return hit;
@@ -158,9 +189,13 @@ export function findTime(seg, now) {
 
 export const PAY_VERBS = ['花', '付', '买', '消费', '刷', '充', '交', '给'];
 
-// 「一口气说完不带停顿」救星：一段话里出现 ≥2 个「数字+块钱/元」时，逐笔切开
+// 「一口气说完不带停顿」救星：一段话里出现 ≥2 个「数字+块钱/元」或「数字+万/千」时，逐笔切开
+// 如「三十二块打车二十五块奶茶十九块九」→ 三个独立账目（否则 findAmount 只取第一个金额）
 const AMT_UNIT_RE = new RegExp(
-  `([0-9]+(?:\\.[0-9]{1,2})?|[${cnNumChars}]+)(?:块钱|块|元|圆)(?:[0-9一二三四五六七八九](?:毛|角)?)?(?![0-9${cnNumChars}])`,
+  `([0-9]+(?:\\.[0-9]{1,2})?|[${cnNumChars}]+)(?:块钱|块|元|圆)(?:[0-9一二三四五六七八九](?:毛|角)?)?(?![0-9${cnNumChars}])` +
+    // v0.14.7：位数单位也是「明说了一笔钱」。「花了23万又交了5千」以前只数得出 0 笔，
+    // 于是云端拆句的触发判据（`multiEntityCue`）对这类句子永远闭嘴。
+    `|[0-9]+(?:\\.[0-9]{1,2})?(?:[百千万]|[wW](?![a-zA-Z]))(?:[0-9一二三四五六七八九](?:[百千])?)?(?![0-9${cnNumChars}])`,
   'g',
 );
 
@@ -168,11 +203,18 @@ const AMT_UNIT_RE = new RegExp(
 const GAP_VERB_RE = /[还又也再就]?(?:花|付|买|消费|刷|充|交|给)/g;
 
 // gap 里第一个真正的支付动词：落在词表物品词内部的那些字（牙刷的「刷」）不算他说了一个动词。
+//
+// ⚠️ 这里必须用**自己的一份**正则，不许改回共享的 `GAP_VERB_RE`：全局正则的 `exec` 会把
+// `lastIndex` 推到命中之后，而这个函数是**找到就 return**——留下的游标是脏的。
+// `nextClauseAt` 随后用同一个正则 `matchAll`，而 `matchAll` 会拿调用方的 `lastIndex` 当起点，
+// 于是「买牙膏花了」里第一个「买」被跳过、只剩一个动词，2054 那一刀在网页版上根本没落下
+// （黄金集「花了30块买牙膏花了40块买鼠标」：App 拆成 30 块牙膏 + 40 块鼠标，网页版拆成
+// 30 块空物品 + 牙膏鼠标两样都记在第二笔）。Dart 的 `allMatches` 没有这种状态，不会踩。
 function firstRealVerbAt(gap) {
   const spans = goodsWordSpans(gap);
-  GAP_VERB_RE.lastIndex = 0;
+  const re = new RegExp(GAP_VERB_RE.source, 'g');
   let m;
-  while ((m = GAP_VERB_RE.exec(gap)) !== null) {
+  while ((m = re.exec(gap)) !== null) {
     if (spans.some((s) => m.index >= s[0] && m.index < s[1])) continue;
     return m.index;
   }
@@ -184,16 +226,23 @@ const NEXT_CLAUSE_RE = /(?:我|咱|俺|还|又|也|再|就|然后|接着|顺便|
 
 /// gap 里第一个新句起点在第几字；第 0 字不算（那正是本笔物品的开头）。
 /// 与 firstRealVerbAt 同一套遮罩：词表物品名里的「在」不算换笔。
+///
+/// v0.14.7 起「新句起点」有两种形状，取更早的那个（与 Dart `_nextClauseAt` 逐条同义）：
+/// ① 起势词/主语/「在+地点」；② **段里后一个支付动词**——「花了30块买牙膏花了40块买鼠标」
+/// 里 gap 是「买牙膏花了」，它以动词开头、段里没有起势词，不认第二种就把「买牙膏」整段归给右笔，
+/// 三笔串一位。而「三十九块九买面包十二块」里 gap 只有一个动词，仍整段归右（黄金集在守）。
 function nextClauseAt(gap) {
   const spans = goodsWordSpans(gap);
-  NEXT_CLAUSE_RE.lastIndex = 0;
-  let m;
-  while ((m = NEXT_CLAUSE_RE.exec(gap)) !== null) {
-    if (m.index === 0) continue;
-    if (spans.some((s) => m.index >= s[0] && m.index < s[1])) continue;
-    return m.index;
-  }
-  return null;
+  let at = null;
+  const consider = (i) => {
+    if (i === 0) return;
+    if (spans.some((s) => i >= s[0] && i < s[1])) return;
+    if (at === null || i < at) at = i;
+  };
+  for (const m of gap.matchAll(NEXT_CLAUSE_RE)) consider(m.index);
+  const verbs = [...gap.matchAll(GAP_VERB_RE)];
+  for (let i = 1; i < verbs.length; i++) consider(verbs[i].index);
+  return at;
 }
 
 /// 两笔金额之间那段文字（gap）怎么分给这两笔 —— 与 Dart 的 `splitGap` 逐条同义
@@ -259,8 +308,55 @@ export function implicitSplit(t) {
   return out;
 }
 
-export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {
-  const amt = findAmount(seg);
+// 「数字（可带万/千）＋（可带的）＋**词表物品词**」——一个**不带钱单位**的金额锚点。
+// 代表句「我在京东买18000的电脑在天猫买了60000的电视在淘宝买6000的冰箱」里三个数都不说「块」，
+// implicitSplit（只数带单位的钱）一次都不触发，整句读成一笔、金额取了最后一笔的 6000。
+// 三条防误伤的闸（与 Dart 同义）：① 反向预查挡掉「39块9的牛奶」里那个当尾数的「9」；
+// ② 数字后面必须紧跟一个 ≥2 字的词表物品词；③ 一句里 ≥2 个锚才动手。
+const ITEM_AMT_RE =
+  /(?<![块元毛角\d百千万])(\d+(?:\.\d{1,2})?)\s*(?:[百千万]\s*(?:[0-9]|[一二两三四五六七八九])?\s*[百千]?)?\s*(?:的)?/g;
+
+// 上一笔说完之后，下一笔的「头」在第几个字：起势词/主语/「在+地点」或**平台词**
+// （「天猫60000电视」这种连「在」都省了的说法）。找不到就不切这一刀。
+function clauseHead(t, from, to) {
+  if (to <= from) return null;
+  const region = t.slice(from, to);
+  const spans = goodsWordSpans(region);
+  let best = -1;
+  const consider = (rel) => {
+    if (spans.some((s) => rel >= s[0] && rel < s[1])) return;
+    if (best < 0 || rel < best) best = rel;
+  };
+  for (const m of region.matchAll(NEXT_CLAUSE_RE)) consider(m.index);
+  for (const w of PLATFORM_WORDS) {
+    const at = region.indexOf(w);
+    if (at >= 0) consider(at);
+  }
+  return best < 0 ? null : from + best;
+}
+
+// 按「数字＋物品」锚点把一句话切成几笔：切点落在**下一笔的头**之前，
+// 于是「在天猫买了」跟着 60000 那笔走，店名不会留在上一笔的尾巴上。
+export function itemAnchorSplit(t) {
+  const anchors = []; // [锚起点, 物品词结尾]
+  for (const m of t.matchAll(ITEM_AMT_RE)) {
+    const end = m.index + m[0].length;
+    const len = goodsWordLenAt(t, end);
+    if (len > 0) anchors.push([m.index, end + len]);
+  }
+  if (anchors.length < 2) return t;
+  let out = '';
+  let last = 0;
+  for (let i = 1; i < anchors.length; i++) {
+    const cut = clauseHead(t, anchors[i - 1][1], anchors[i][0]);
+    if (cut === null || cut <= last) continue; // 认不出下一笔从哪儿开始 ⇒ 这一刀不切
+    out += `${t.slice(last, cut)}，`;
+    last = cut;
+  }
+  return out + t.slice(last);
+}
+
+export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {  const amt = findAmount(seg);
   const hasPayVerb = PAY_VERBS.some((w) => seg.includes(w));
   const mer = findMerchant(seg);
   // 只说品牌词（如「星巴克」）也应成卡：缺金额由确认卡强制补录
@@ -358,6 +454,9 @@ export function parseText(text, now, knownItems = [], learnedCats = {}) {
   let t = normalizeText(text);
   t = t.replace(/然后|接着|还有|加上|再来/g, '，').replace(/。/g, '，');
   t = implicitSplit(t);
+  // 三个数一个「块」都没说时（「京东18000的电脑天猫60000的电视淘宝6000的冰箱」），
+  // 改按「数字＋物品词」的锚点拆。两条救星管的是两种不同的说法，缺一不可。
+  t = itemAnchorSplit(t);
   const parts = t.split(/[，,、；;\s]+/).filter((p) => p.length);
   const merged = [];
   let pending = '';
