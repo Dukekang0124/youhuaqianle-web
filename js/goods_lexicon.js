@@ -779,6 +779,16 @@ export const GOODS_WORDS = [
   { word: '车锁', cat: '交通件', item: '' },
   { word: '山地车', cat: '交通件', item: '自行车' },
   { word: '电瓶车', cat: '交通件', item: '电动车' },
+  { word: '电费', cat: '家居', item: '' },
+  { word: '水费', cat: '家居', item: '' },
+  { word: '水电费', cat: '家居', item: '' },
+  { word: '燃气费', cat: '家居', item: '' },
+  { word: '煤气费', cat: '家居', item: '燃气费' },
+  { word: '物业费', cat: '家居', item: '' },
+  { word: '房租', cat: '家居', item: '' },
+  { word: '供暖费', cat: '家居', item: '' },
+  { word: '宽带费', cat: '家居', item: '' },
+  { word: '话费', cat: '家居', item: '' },
 ];
 
 export const goodsDisplay = (w) => (w.item === '' ? w.word : w.item);

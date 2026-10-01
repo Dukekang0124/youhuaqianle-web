@@ -175,6 +175,13 @@ export const PLATFORM_WORDS = [
   '电商', '小程序', '直播',
 ];
 
+// 支付渠道词（v0.14.3 FR-7 的姊妹表，2058）。与上面那张表的分工：PLATFORM_WORDS 是
+// **在哪买**（电商与线下店，用来关掉商户作用域），这一张是**用什么付**（通道名，本身不是店）。
+// findMerchant 靠它把「在支付宝交了电费」的渠道整词认出来（真源 app/lib/core/lexicon.dart）。
+export const PAY_CHANNEL_WORDS = [
+  '微信支付', '微信', '支付宝', '云闪付', '零钱', '余额宝', '银行卡', '花呗',
+];
+
 export function categoryByName(name) {
   return CATEGORIES.find((c) => c.name === name) ?? CATEGORIES[CATEGORIES.length - 1];
 }

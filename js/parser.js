@@ -1,12 +1,17 @@
 // 四要素解析引擎 —— 1:1 移植自 app/lib/core/parser.dart
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
-import { cn2num, cnNumChars, normalizeText } from './cn.js';
+import { cn2num, cnDecimal, cnDigits, cnNumChars, normalizeText } from './cn.js';
 import {
   detectGoodsGroup, longestGoodsWord, goodsWordSpans, goodsWordLenAt, wordAt,
 } from './goods_detect.js';
-import { CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS } from './lexicon.js';
+import {
+  CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS, PAY_CHANNEL_WORDS,
+} from './lexicon.js';
 
 const CAT = `[${cnNumChars}]`;
+
+// 角位与分位上能出现的字：只有 0-9 和单字数字，不含「十百千万」——与 Dart 的 `_tailDigits` 同源。
+const TAIL_DIGITS = '0-9零〇一二两三四五六七八九';
 
 // 「5万2」「23万」「1.5万」「8w」：阿拉伯数字 + 中文位数单位。
 // 🔴 必须排在所有其它金额规则之前（与 Dart 的 `_findMagnitude` 同一条理由）：
@@ -33,25 +38,90 @@ function findMagnitude(seg) {
   return { cents: Math.round(v * 100), conf: 0.95 };
 }
 
+// 「N块M」这一族的骨架：元部分 + 单位词。单位词之后那段（角/分）不塞进正则，
+// 交给 tailCents 逐字读——与 Dart 的 `_yuanUnitRe` 同源。
+const YUAN_UNIT_RE = new RegExp(
+  `(?<yuan>[0-9]+(?:\\.[0-9]{1,2})?|[${cnNumChars}]+(?:点[${TAIL_DIGITS}]{1,2})?)\\s*(?:块钱|块|元|圆|米)`,
+);
+const YUAN_UNIT_RE_G = new RegExp(YUAN_UNIT_RE.source, 'g');
+
+// 单位词之后那串角分的形状（tailCents 读值、hideAmounts 量长度共用一份）。
+const TAIL_RE = new RegExp(`^([${TAIL_DIGITS}]{1,2})\\s*(毛|角)?\\s*([${TAIL_DIGITS}])?\\s*(分)?`);
+
+// 「一点五万」这类中文小数带位数单位：MAGNITUDE_RE 只认阿拉伯数字，这里补上中文写法。
+// 它存在的理由只有一个——把那个小数点「点」从钟点正则眼前拿走。
+const DECIMAL_MAG_RE = new RegExp(
+  `[${cnNumChars}]+点[${TAIL_DIGITS}]{1,2}\\s*(?:[百千万]|[wW](?![a-zA-Z]))`,
+);
+const DECIMAL_MAG_RE_G = new RegExp(DECIMAL_MAG_RE.source, 'g');
+const MAGNITUDE_RE_G = new RegExp(MAGNITUDE_RE.source, 'g');
+
+function digitOf(c) {
+  return c in cnDigits ? cnDigits[c] : /^\d$/.test(c) ? Number(c) : null;
+}
+
+// 单位词之后那串角分读成「几分」（0..99），四条口径与 Dart 的 `_tailCents` 逐条相同：
+// ① 连着说两位（「152块75」）＝ 7 毛 5 分；② 写了「毛/角」「分」字的按字面走；
+// ③ 只说一位、元部分自己没说过角（「七块五」）＝ 毛；
+// ④ 元部分自己已带小数点（「一百五十二点七块五」）时那一位只能是分。
+function tailCents(tail, yuanHasDecimal) {
+  const m = TAIL_RE.exec(tail);
+  if (!m) return 0;
+  const a = m[1];
+  if (a.length === 2) return digitOf(a[0]) * 10 + digitOf(a[1]);
+  const d = digitOf(a);
+  if (m[2] !== undefined || m[3] !== undefined) {
+    return d * 10 + (m[3] === undefined ? 0 : digitOf(m[3]));
+  }
+  if (m[4] !== undefined) return d;
+  return yuanHasDecimal ? d : d * 10;
+}
+
+// 「块/元」这一族一次读全（替掉旧的第 1、1b、2 三条各管一截的写法）。
+function findYuanJiaoFen(seg) {
+  const m = seg.match(YUAN_UNIT_RE);
+  if (!m) return null;
+  const yuanText = m.groups.yuan;
+  const yuan = cnDecimal(yuanText);
+  if (yuan === null || yuan <= 0) return null;
+  return {
+    cents: Math.round(yuan * 100) +
+      tailCents(seg.slice(m.index + m[0].length),
+        yuanText.includes('点') || yuanText.includes('.')),
+    conf: 0.95,
+  };
+}
+
+// 金额与位数短语在原文里占的那一段（元 + 单位词 + 角分尾）。
+function amountSpans(seg) {
+  const allOf = (re) => [...seg.matchAll(re)].map((m) => {
+    const end = m.index + m[0].length;
+    const t = TAIL_RE.exec(seg.slice(end));
+    return [end, end + (t ? t[0].length : 0)];
+  });
+  return [...allOf(YUAN_UNIT_RE_G), ...allOf(MAGNITUDE_RE_G), ...allOf(DECIMAL_MAG_RE_G)];
+}
+
+// 挖掉金额短语后的原文（等长「※」占位）。时间那条路必须先走这一步：
+// 「一百五十二点七块五」里的「点」是小数点，而钟点正则会把「五十二点」抓成 52 点；
+// 与 Dart 同一条理由——错误的小时不报错，它进位成「两天后的 04:00」。
+function hideAmounts(seg) {
+  const spans = amountSpans(seg);
+  if (spans.length === 0) return seg;
+  // 按 UTF-16 码元逐位对齐（与 Dart 的 `seg[i]` 同一口径）：正则给的下标就是码元下标。
+  let out = '';
+  for (let i = 0; i < seg.length; i++) {
+    out += spans.some((s) => i >= s[0] && i < s[1]) ? '※' : seg[i];
+  }
+  return out;
+}
+
 export function findAmount(seg) {
   const mag = findMagnitude(seg);
   if (mag) return mag;
+  const yjf = findYuanJiaoFen(seg);
+  if (yjf) return yjf;
   let m;
-  // 1. 阿拉伯 + 单位
-  m = seg.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:块钱|元|块|圆|米)(?![0-9])/);
-  if (m) return { cents: Math.round(parseFloat(m[1]) * 100), conf: 0.95 };
-  // 1b. "39块9" -> 39.9
-  m = seg.match(/([0-9]+)块([0-9])(?![0-9])/);
-  if (m) return { cents: parseInt(m[1], 10) * 100 + parseInt(m[2], 10) * 10, conf: 0.95 };
-  // 2. 中文 + 单位 + 尾数/毛角
-  m = seg.match(new RegExp(`(${CAT}+)\\s*(?:块钱|块|圆|元)([一二两三四五六七八九])?(?:毛|角)?`));
-  if (m) {
-    const v = cn2num(m[1]);
-    if (v !== null) {
-      const tail = m[2] ? cn2num(m[2]) * 10 : 0;
-      return { cents: v * 100 + tail, conf: 0.95 };
-    }
-  }
   // 3. 省略式（尾数取低一级单位）："一千二"->1200 "二百八"->280 "一万二"->12000
   m = seg.match(new RegExp(`([一二两三四五六七八九][千百万])([一二三四五六七八九])(?!${CAT})`));
   if (m) {
@@ -129,12 +199,29 @@ export function findCategory(seg) {
   return { name: '其他', conf: 0.3 };
 }
 
+// 渠道名按长度倒序拼进交替式：「微信支付」必须排在「微信」前面，否则正则先撞上短的。
+const CHANNEL_ALTERNATION = [...PAY_CHANNEL_WORDS]
+  .sort((a, b) => [...b].length - [...a].length)
+  .join('|');
+
+// 「在/去/到 + 渠道名」：整词优先，走在通用商户框架之前。
+// 通用框架允许「付」当动词、又允许捕获一个字，于是「我在支付宝上交了电费」
+// 在旧实现里切出过商户「支」（实测截图 2026-10-01 11:05）。
+const CHANNEL_FRAME_RE = new RegExp(`(?:在|去|到)(${CHANNEL_ALTERNATION})`);
+
+// 「在/去/到 + 店名 + 动词」：捕获**至少两个字**——单字店名基本是切错的残渣。
+// 动词表补了「交/缴」：水电话费这类账他说的就是「交了」，旧表里没有这个动词。
+const MERCHANT_FRAME_RE = new RegExp(
+  '(?:在|去|到)([一-龥A-Za-z0-9\\-]{2,10}?)' +
+    '(?:买的|买了|买|吃饭|吃了|吃|喝|打车|充值|充|消费|花了|付了|付|刷|交了|交|缴了|缴)',
+);
+
 export function findMerchant(seg) {
   const b = longestBrand(seg);
   if (b) return { name: b.brand, conf: 0.9 };
-  const m = seg.match(
-    /(?:在|去|到)([一-龥A-Za-z0-9\-]{1,10}?)(?:买的|买了|买|吃饭|吃了|吃|喝|打车|充值|充|消费|花了|付了|付|刷)/,
-  );
+  const ch = seg.match(CHANNEL_FRAME_RE);
+  if (ch) return { name: ch[1], conf: 0.75 };
+  const m = seg.match(MERCHANT_FRAME_RE);
   if (m) return { name: m[1], conf: 0.7 };
   return { name: '', conf: 0 };
 }
@@ -169,14 +256,18 @@ export function findTime(seg, now) {
       break;
     }
   }
-  const m = seg.match(/([0-9]{1,2}|[一二两三四五六七八九十]{1,3})点(半|[0-5]?[0-9]分?)?/);
+  const m = hideAmounts(seg).match(/([0-9]{1,2}|[一二两三四五六七八九十]{1,3})点(半|[0-5]?[0-9]分?)?/);
   if (m) {
     const h = cn2num(m[1]);
-    if (h !== null) hour = h;
-    const mm = m[2];
-    minute = mm === '半' ? 30 : mm !== undefined && mm !== null ? parseInt(mm.replace('分', ''), 10) || 0 : 0;
-    if (/下午|晚上|傍晚/.test(seg) && hour !== null && hour < 12) hour += 12;
-    found = true;
+    // 小时只在 0..23 才认。越界时宁可不给时间，也不许把「52 点」交给 new Date：
+    // 它会静默进位成「两天后的 04:00」，把一笔今天的账记到下个月。
+    if (h !== null && h >= 0 && h <= 23) {
+      hour = h;
+      const mm = m[2];
+      minute = mm === '半' ? 30 : mm !== undefined && mm !== null ? parseInt(mm.replace('分', ''), 10) || 0 : 0;
+      if (/下午|晚上|傍晚/.test(seg) && hour < 12) hour += 12;
+      found = true;
+    }
   }
   let d = new Date(now.getTime() + dayOffset * 86400000);
   if (hour !== null) {
@@ -195,7 +286,7 @@ const AMT_UNIT_RE = new RegExp(
   `([0-9]+(?:\\.[0-9]{1,2})?|[${cnNumChars}]+)(?:块钱|块|元|圆)(?:[0-9一二三四五六七八九](?:毛|角)?)?(?![0-9${cnNumChars}])` +
     // v0.14.7：位数单位也是「明说了一笔钱」。「花了23万又交了5千」以前只数得出 0 笔，
     // 于是云端拆句的触发判据（`multiEntityCue`）对这类句子永远闭嘴。
-    `|[0-9]+(?:\\.[0-9]{1,2})?(?:[百千万]|[wW](?![a-zA-Z]))(?:[0-9一二三四五六七八九](?:[百千])?)?(?![0-9${cnNumChars}])`,
+    `|[0-9]+(?:\\.[0-9]{1,2})?(?:[百千万]|[wW](?![a-zA-Z]))(?:[0-9一二两三四五六七八九](?:[百千])?)?(?![0-9${cnNumChars}])`,
   'g',
 );
 

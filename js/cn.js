@@ -38,6 +38,28 @@ export function cn2num(raw) {
   return seen ? v : null;
 }
 
+// 中文数字带小数点：「一百五十二点七」→ 152.7（金额专用，2058）。真源 app/lib/core/cn_numbers.dart。
+// 只给金额这条路用：cn2num 在别的位置上的「点」是钟点（三点半），不是小数点。
+export function cnDecimal(raw) {
+  const s = String(raw).trim();
+  if (!s) return null;
+  const at = s.indexOf('点');
+  if (at < 0) {
+    if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    return cn2num(s);
+  }
+  const head = cn2num(s.slice(0, at));
+  if (head === null) return null;
+  let frac = 0, scale = 0.1;
+  for (const c of s.slice(at + 1)) {
+    const d = c in cnDigits ? cnDigits[c] : (/^\d$/.test(c) ? Number(c) : null);
+    if (d === null) return null;
+    frac += d * scale;
+    scale /= 10;
+  }
+  return head + frac;
+}
+
 export function normalizeText(text) {
   let t = String(text).replace(/[０-９]/g, (m) =>
     String.fromCharCode(m.charCodeAt(0) - 0xff10 + 48),
