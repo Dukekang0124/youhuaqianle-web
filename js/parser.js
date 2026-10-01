@@ -2,8 +2,7 @@
 // 真源是 Dart 那份；本文件与它必须给出同样的金额/分类/商户/时间，由 tools/web-parity.mjs 用同一份黄金集把关。
 import { cn2num, cnDecimal, cnDigits, cnNumChars, normalizeText } from './cn.js';
 import {
-  detectGoodsGroup, longestGoodsWord, goodsWordSpans, goodsWordLenAt, wordAt,
-} from './goods_detect.js';
+  detectGoodsGroup, longestGoodsWord, goodsWordSpans, goodsWordLenAt, wordAt, brandWordAt } from './goods_detect.js';
 import {
   CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS, PAY_CHANNEL_WORDS,
 } from './lexicon.js';
@@ -151,9 +150,17 @@ export function findType(seg) {
 // 词典里常有两词同属一类，所以只回长度不合并计数。
 function longestBrand(seg) {
   let hit = null;
+  let hitLen = 0;
   for (const b of BRANDS) {
-    if (!b.brand || !seg.includes(b.brand)) continue;
-    if (hit === null || b.brand.length > hit.brand.length) hit = b;
+    for (const form of [b.brand, ...(b.aliases || [])]) {
+      if (!form) continue;
+      // 与 Dart 同一把闸（goods_detect.brandWordAt）：大小写都认、数字算边界、字母贴着的不算
+      if (brandWordAt(seg, form) < 0) continue;
+      if ([...form].length > hitLen) {
+        hit = b;
+        hitLen = [...form].length;
+      }
+    }
   }
   return hit;
 }

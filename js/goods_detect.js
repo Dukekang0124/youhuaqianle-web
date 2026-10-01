@@ -42,7 +42,7 @@ function fold(c) {
   return c >= 65 && c <= 90 ? c + 32 : c;
 }
 
-export function wordAt(seg, word, from = 0) {
+function asciiWordAt(seg, word, from, blocks) {
   if (!startsAsciiLetter(word)) return seg.indexOf(word, from);
   for (let i = from; i + word.length <= seg.length; i++) {
     let ok = true;
@@ -55,10 +55,26 @@ export function wordAt(seg, word, from = 0) {
     if (!ok) continue;
     const before = i > 0 ? seg.charCodeAt(i - 1) : 0;
     const after = i + word.length < seg.length ? seg.charCodeAt(i + word.length) : 0;
-    if (isAsciiAlnum(before) || isAsciiAlnum(after)) continue;
+    if (blocks(before) || blocks(after)) continue;
     return i;
   }
   return -1;
+}
+
+export function wordAt(seg, word, from = 0) {
+  return asciiWordAt(seg, word, from, isAsciiAlnum);
+}
+
+// 品牌名用的那把边界闸：数字算边界、字母不算——与 Dart 的 brandWordAt 逐条同义。
+// ASR 会把金额直接粘在英文名后面（「nike400块」是「耐克四百块」最常见的转写形态），
+// 按物品词那条「字母或数字都不许贴」的规矩，每个拉丁品牌在真机上都是零命中。
+// 字母仍然不许贴：「pineapple」里的 apple、「nikestore」里的 nike 都还是抠碎。
+export function brandWordAt(seg, word) {
+  return asciiWordAt(seg, word, 0, isAsciiLetterOnly);
+}
+
+function isAsciiLetterOnly(c) {
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
 }
 
 export function wordStartsAt(text, at, word) {
