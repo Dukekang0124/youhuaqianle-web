@@ -76,19 +76,36 @@ function tailCents(tail, yuanHasDecimal) {
   return yuanHasDecimal ? d : d * 10;
 }
 
+// 「块」在这里是量词还是元：**只有单字数字 + 光杆「块」+ 紧跟物品名**才算量词
+// （「一块蛋糕28」说的是一块蛋糕，钱是后面那个 28）。与 Dart 的 `_isMeasureWord` 同源。
+//
+// 🔴 上一版这里根本没有这一判据（只取第一个匹配就返回），于是网页版把「一块蛋糕28」
+// 记成 ¥1；而 App 侧补上判据之后，同一句话在两端给出两笔完全不同的账。
+// 🔴 判据也不能宽成「后面有物品名就算量词」：「十块钱牙膏」带「钱」字，
+// 「八百块水费」「五十块话费」的元部分自己说了位数——没人把它们听成量词，
+// 可词表里恰好有牙膏/水费/话费（2026-10-03 全量回归当场抓出来的真串案）。
+function isMeasureWord(seg, m) {
+  if (goodsWordLenAt(seg, m.index + m[0].length) < 2) return false;
+  if (m[0].endsWith('块钱')) return false;
+  return new RegExp(`^[${TAIL_DIGITS}]$`).test(m.groups.yuan);
+}
+
 // 「块/元」这一族一次读全（替掉旧的第 1、1b、2 三条各管一截的写法）。
+// 量词那一处匹配跳过、不换档：同一句里后面还有真的「15块5」时照旧按元读。
 function findYuanJiaoFen(seg) {
-  const m = seg.match(YUAN_UNIT_RE);
-  if (!m) return null;
-  const yuanText = m.groups.yuan;
-  const yuan = cnDecimal(yuanText);
-  if (yuan === null || yuan <= 0) return null;
-  return {
-    cents: Math.round(yuan * 100) +
-      tailCents(seg.slice(m.index + m[0].length),
-        yuanText.includes('点') || yuanText.includes('.')),
-    conf: 0.95,
-  };
+  for (const m of seg.matchAll(YUAN_UNIT_RE_G)) {
+    if (isMeasureWord(seg, m)) continue;
+    const yuanText = m.groups.yuan;
+    const yuan = cnDecimal(yuanText);
+    if (yuan === null || yuan <= 0) continue;
+    return {
+      cents: Math.round(yuan * 100) +
+        tailCents(seg.slice(m.index + m[0].length),
+          yuanText.includes('点') || yuanText.includes('.')),
+      conf: 0.95,
+    };
+  }
+  return null;
 }
 
 // 金额与位数短语在原文里占的那一段（元 + 单位词 + 角分尾）。

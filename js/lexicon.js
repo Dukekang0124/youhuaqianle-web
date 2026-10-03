@@ -165,7 +165,7 @@ export const BRANDS = [
   { brand: '新东方', category: '教育' },
 ];
 
-export const INCOME_WORDS = ['工资', '发薪', '报销', '入账', '收到', '中了', '返现', '利息'];
+export const INCOME_WORDS = ['工资', '发薪', '报销', '入账', '收到', '中了', '返现', '利息', '收款'];
 export const REFUND_WORDS = ['退款', '退了', '退回', '退给'];
 
 // 平台/渠道词（v0.14.2 FR-7）：不参与判类、不直接入账、不当商户名，
