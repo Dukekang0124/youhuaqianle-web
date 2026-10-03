@@ -12,29 +12,38 @@ const CAT = `[${cnNumChars}]`;
 // 角位与分位上能出现的字：只有 0-9 和单字数字，不含「十百千万」——与 Dart 的 `_tailDigits` 同源。
 const TAIL_DIGITS = '0-9零〇一二两三四五六七八九';
 
-// 「5万2」「23万」「1.5万」「8w」：阿拉伯数字 + 中文位数单位。
+// 「5万2」「23万」「1.5万」「8w」「1.5k」：阿拉伯数字 + 位数单位（k 与 w 同级，U1 2026-10-03，与 Dart 同源）。
 // 🔴 必须排在所有其它金额规则之前（与 Dart 的 `_findMagnitude` 同一条理由）：
 // 「淘宝花了5万2买沙发」在第 1 条匹配不上，掉到第 4 条「裸数字取最后一个」会把 52000 记成 ¥2。
 const MAGNITUDE_RE =
-  /([0-9]+(?:\.[0-9]{1,2})?)\s*([百千万]|[wW](?![a-zA-Z]))(?:\s*(?:([0-9]|[一二两三四五六七八九])\s*([百千])?))?/;
+  /([0-9]+(?:\.[0-9]{1,2})?)\s*([百千万]|[wW](?![a-zA-Z])|[kK](?![a-zA-Z]))(?:\s*(?:([0-9]|[一二两三四五六七八九])\s*([百千])?))?/;
 
 function magUnit(c) {
   if (c === '百') return 100;
-  if (c === '千') return 1000;
+  if (c === '千' || c === 'k' || c === 'K') return 1000;
   return 10000; // 万 / w / W
 }
 
+// 「k」这一档只认**纯金额尾**（与 Dart 的 `_kGluedToItem` 同判据）：数字后面紧跟一个
+// 词表物品词，那个 k 就是规格不是钱——「买了个4k显示器3000」里的 4k 是分辨率，钱是 3000。
+// 中文「千/万」没有这种规格读法，所以这一道闸只管拉丁 k。
+function kGluedToItem(unit, seg, at) {
+  return (unit === 'k' || unit === 'K') && goodsWordLenAt(seg, at) >= 2;
+}
+
 function findMagnitude(seg) {
-  const m = seg.match(MAGNITUDE_RE);
-  if (!m) return null;
-  const unit = magUnit(m[2]);
-  let v = parseFloat(m[1]) * unit;
-  if (m[3] !== undefined) {
-    const d = cn2num(m[3]);
-    if (d !== null) v += d * (m[4] !== undefined ? magUnit(m[4]) : Math.floor(unit / 10));
+  for (const m of seg.matchAll(MAGNITUDE_RE_G)) {
+    if (kGluedToItem(m[2], seg, m.index + m[0].length)) continue;
+    const unit = magUnit(m[2]);
+    let v = parseFloat(m[1]) * unit;
+    if (m[3] !== undefined) {
+      const d = cn2num(m[3]);
+      if (d !== null) v += d * (m[4] !== undefined ? magUnit(m[4]) : Math.floor(unit / 10));
+    }
+    if (v <= 0) return null;
+    return { cents: Math.round(v * 100), conf: 0.95 };
   }
-  if (v <= 0) return null;
-  return { cents: Math.round(v * 100), conf: 0.95 };
+  return null;
 }
 
 // 「N块M」这一族的骨架：元部分 + 单位词。单位词之后那段（角/分）不塞进正则，
@@ -310,9 +319,34 @@ const AMT_UNIT_RE = new RegExp(
   `([0-9]+(?:\\.[0-9]{1,2})?|[${cnNumChars}]+)(?:块钱|块|元|圆)(?:[0-9一二三四五六七八九](?:毛|角)?)?(?![0-9${cnNumChars}])` +
     // v0.14.7：位数单位也是「明说了一笔钱」。「花了23万又交了5千」以前只数得出 0 笔，
     // 于是云端拆句的触发判据（`multiEntityCue`）对这类句子永远闭嘴。
-    `|[0-9]+(?:\\.[0-9]{1,2})?(?:[百千万]|[wW](?![a-zA-Z]))(?:[0-9一二两三四五六七八九](?:[百千])?)?(?![0-9${cnNumChars}])`,
+    // U1（2026-10-03）：`k` 与 `w` 同级——`findAmount` 认「1.5k」是钱，这里就必须同样数得出，
+    // 否则「他说了几笔钱」和拆句用的钱是两套口径（与 Dart 的 `_amtUnitRe` 同源）。
+    // F10（2026-10-03，docs/40 §3）：位数单位前面放开一个空格，与 `MAGNITUDE_RE`（一直写着
+    // `\s*`）**同一批口径**。不放的后果不是「少拆一笔」那么轻：`花了1.5 k和200块吃饭`
+    // 里这一笔在拆句数不出来，于是那句被别的规则从数字中间切开，**¥1,500 记成了 ¥1.50**——
+    // `万` 同样中招，比 `k` 早得多。
+    // 🔴 空格只在**位数单位**这一档放开：「1.5 块」丢掉单位也只是 ¥1.50，不差数量级，不在射程里。
+    // 🔴 单位要**命名捕获**（`mag`）：F9 那道护栏得知道这个锚用的是哪个单位字、那个字在哪结束。
+    `|[0-9]+(?:\\.[0-9]{1,2})?\\s*(?<mag>[百千万]|[wW](?![a-zA-Z])|[kK](?![a-zA-Z]))(?:[0-9一二两三四五六七八九](?:[百千])?)?(?![0-9${cnNumChars}])`,
   'g',
 );
+
+/// 这句话里他**明说过带单位**的那几截钱——**锚点级**的出口，护栏已筛
+/// （与 Dart 的 `_amountAnchors` 同一判据、同一处定义：拆句只许从这里数锚）。
+///
+/// 🔴 F9（2026-10-03，docs/40 §3）：以前这里直接拿 `AMT_UNIT_RE.matchAll` 用，
+/// 而 `4k显示器` 里那个 `4k` 是**分辨率不是钱**（`findMagnitude` 有 `kGluedToItem` 挡它，
+/// 拆句没有）。于是 `买了个4k显示器3000块` 数出两个锚 ⇒ 拆成两笔 ⇒ 凭空多落一行 **¥4,000**。
+/// 护栏判据仍然只有 `kGluedToItem` 那一处，只是**多了一个使用点**；差别在于这里把整句
+/// （已归一）交给它，而不是拆完的小段——规格词紧跟物品名这件事，句子越整越好判。
+function amountAnchors(t) {
+  return [...t.matchAll(AMT_UNIT_RE)].filter((m) => {
+    const unit = m.groups && m.groups.mag;
+    if (!unit) return true;
+    // 单位字在整段匹配里的位置：数字尾巴里不会出现「百千万kwK」这几个字，第一次出现就是它自己。
+    return !kGluedToItem(unit, t, m.index + m[0].indexOf(unit) + 1);
+  });
+}
 
 // 「下一笔的起势」＋支付动词；切点取整个匹配的开始，所以「还买了」一起留给右段。
 const GAP_VERB_RE = /[还又也再就]?(?:花|付|买|消费|刷|充|交|给)/g;
@@ -404,7 +438,9 @@ export function splitGap(gap, clause) {
 }
 
 export function implicitSplit(t) {
-  const ms = [...t.matchAll(AMT_UNIT_RE)];
+  // 🔴 走 `amountAnchors` 而不是裸用正则：F9 那条幻影账（`4k显示器` 的 `4k` 被当成一笔钱）
+  // 就是从这一行走出去的。「他说了几笔钱」这件事全站只许有一处口径。
+  const ms = amountAnchors(t);
   if (ms.length < 2) return t;
   let out = '';
   let last = 0;
