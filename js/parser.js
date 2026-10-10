@@ -6,6 +6,9 @@ import {
 import {
   CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS, PAY_CHANNEL_WORDS,
 } from './lexicon.js';
+import {
+  KIND_EXPENSE, KIND_FALLBACK, ownerOf, topsWords, subsWords, topOf,
+} from './taxonomy.js';
 
 const CAT = `[${cnNumChars}]`;
 
@@ -167,8 +170,32 @@ export function findAmount(seg) {
   return null;
 }
 
+// 这一句里的钱是不是**他往外付**的。与 `app/lib/core/parser.dart` 的 `_isPayerSide`
+// 同一把闸（v16-S26 §三.1 的压岁钱闸 + P0-2 ⑵ 扩成的钱酬族，逐条同形状）：
+// * 压岁钱那一格：对象可以为空（「发压岁钱六百」是往外给），只有第一人称判回进账；
+// * 工资/奖金/补贴/津贴/稿费/劳务费：动词与那格钱之间**必须有一个对象**才算往外付，
+//   对象里混进虚词或数字不算（「发了工资8000」进账，「发员工工资8000」付出）；
+// * 「补贴/贴补 + 家用/家里/生活」是一个词，前面没有给/发也算付出。
+// 「红包」不在任何一族里：它从来就不在 INCOME_WORDS，落到最后一行返回 expense 就对了。
+const PAY_CUES = ['工资', '奖金', '补贴', '津贴', '稿费', '劳务费'];
+const NOT_AN_OBJECT = /[我俺咱了就才也还又已经先再在去给和跟与0-9]/;
+
+function isPayerSide(seg) {
+  const gift = seg.match(/[给发]([^，。,.]{0,6})压岁钱/);
+  if (gift) {
+    const obj = gift[1] ?? '';
+    if (!obj.includes('我') && !obj.includes('俺') && !obj.includes('咱')) return true;
+  }
+  for (const w of PAY_CUES) {
+    const m = seg.match(new RegExp('[给发]([^，。,.]{1,6})' + w));
+    if (m && !NOT_AN_OBJECT.test(m[1])) return true;
+  }
+  return /(补贴|贴补)(家用|家里|生活)/.test(seg);
+}
+
 export function findType(seg) {
   if (REFUND_WORDS.some((w) => seg.includes(w))) return 'refund';
+  if (isPayerSide(seg)) return 'expense';
   if (INCOME_WORDS.some((w) => seg.includes(w))) return 'income';
   return 'expense';
 }
@@ -205,31 +232,63 @@ function isGoodsFragment(seg, word, spans) {
   return seen > 0 && buried === seen;
 }
 
-function longestCatWord(seg) {
+// 候选词表里最长命中优先的那一个（与 Dart 的 _longestWord 同一把尺，一处定义两道闸）：
+// ① 与物品词同一把边界闸（wordAt）；② 物品词遮罩（isGoodsFragment）。
+// 裁决只有一句「词更长者胜，同长时先声明的那个胜」：一级与二级分两次进来（见 findCategory），
+// 所以这里不需要「同长时谁胜」的第二条判据——写了「同长二级胜」就会让二级词把一级
+// 改判到别的树，撞掉四条锁过的口径（docs/44 §25.2）。
+function longestWord(words, seg) {
   const spans = goodsWordSpans(seg);
   let hit = null;
-  for (const c of CATEGORIES) {
-    if (c.name === '其他') continue;
-    for (const w of c.words) {
-      // 与物品词同一把匹配闸（goods_detect.wordAt）：ASCII 词大小写都认，
-      // 但不许从更长的拉丁串里抠出来（与 Dart 同一条理由）。
-      if (!w || wordAt(seg, w) < 0) continue;
-      if (isGoodsFragment(seg, w, spans)) continue;
-      if (hit === null || [...w].length > [...hit.word].length) {
-        hit = { cat: c, word: w };
-      }
-    }
+  for (const cw of words) {
+    if (!cw.word || wordAt(seg, cw.word) < 0) continue;
+    if (isGoodsFragment(seg, cw.word, spans)) continue;
+    if (hit === null || [...cw.word].length > [...hit.word].length) hit = cw;
   }
   return hit;
 }
 
-// 「最长命中优先」：命中更具体的词，而不是先撞上的词（「美团买药」不被「美团」吃掉）。
-export function findCategory(seg) {
+// 命中最长的一级分类关键词（连命中的词一起回）。不分方向那一档
+//（merchantScopes 手里没有「这笔钱往哪个方向走」）；入账判类走 findCategory。
+function longestCatWord(seg) {
+  const cw = longestWord(topsWords(), seg);
+  if (!cw) return null;
+  return { cat: CATEGORIES.find((c) => c.name === cw.top), word: cw.word };
+}
+
+// 「最长命中优先」：命中更具体的词，而不是先撞上的词。
+// 旧实现按类别声明顺序 + 命中个数裁决，两个坑：①「美团买药」被前面的「美团」吃掉判成餐饮；
+// ②「看电影买了两张票」里「电影」「买」各算一票，平手时排在后面的娱乐永远输给了购物。
+//
+// v16-S25 词表三套化（docs/44 §25），与 Dart 的 findCategory 同一条裁决：
+// ① `kind`（方向）：只查那一套词表，收入句不会再落进支出树的名字、退款句不会再落进「其他」；
+// ② 二级候选：**一级先判**，二级只往命中那个一级自己那棵里挂；一级一个都没命中时
+//    二级才能同时定一级；
+// ③ 兜底：认不出来落的是**这个方向自己的**兜底（KIND_FALLBACK），不是写死的支出「其他」。
+// 口径差如实登记（docs/44 §25.5）：网页版没有停用与自定义分类，所以 Dart 里
+// `isActiveCategory` 那道品牌闸和 `custom` 那两道旁路在这里没有对应物——不是漏实现。
+export function findCategory(seg, kind = KIND_EXPENSE) {
   const b = longestBrand(seg);
-  if (b) return { name: b.category, conf: 0.95 };
-  const w = longestCatWord(seg);
-  if (w) return { name: w.cat.name, conf: w.word.length >= 2 ? 0.85 : 0.75 };
-  return { name: '其他', conf: 0.3 };
+  // 方向不对的品牌分类不能塞——「收到美团退款」判成餐饮就是这一格漏了方向闸。
+  if (b && ownerOf(b.category) === kind) {
+    return { name: b.category, sub: '', conf: 0.95 };
+  }
+  const t = longestWord(topsWords(kind), seg);
+  if (t) {
+    const s = longestWord(subsWords(kind, t.top), seg);
+    return {
+      name: t.top,
+      sub: s ? s.sub : '',
+      conf: [...t.word].length >= 2 ? 0.85 : 0.75,
+    };
+  }
+  // 一级词表一个都没命中，二级词表才有资格同时定两级（「压岁钱」「收到红包」走这一档）。
+  // 🔴 单字的二级词不许独自定一级：「书包」「面包」的尾巴正好是二级词「包」，
+  // 物品词遮罩只遮「词在物品词内部且不在结尾」的位置，于是「八十块钱的书包」里的包
+  // 能漏过遮罩把这笔判成购物。与 Dart 同一条闸，同一条理由。
+  const s = longestWord(subsWords(kind), seg);
+  if (s && [...s.word].length >= 2) return { name: s.top, sub: s.sub, conf: 0.85 };
+  return { name: KIND_FALLBACK[kind], sub: '', conf: 0.3 };
 }
 
 // 渠道名按长度倒序拼进交替式：「微信支付」必须排在「微信」前面，否则正则先撞上短的。
@@ -512,7 +571,11 @@ export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {  con
   const mer = findMerchant(seg);
   // 只说品牌词（如「星巴克」）也应成卡：缺金额由确认卡强制补录
   if (!amt && !hasPayVerb && !mer.name) return null;
-  const cat = findCategory(seg);
+  // 🔴 v16-S25：先定方向再判类（与 Dart parseSegment 同一处改动、同一条理由）。
+  // 原来 `findCategory(seg)` 排在 `findType(seg)` 之前且判类完全不看方向，于是
+  // 「收到红包两百」落到支出树的「人情」、退款落到支出的「其他」——方向与分类各判各的。
+  const type = findType(seg);
+  const cat = findCategory(seg, type);
   const time = findTime(seg, now);
   // 物品维度独立抽（docs/29 FR-1）：认不出就是空串，绝不拿场景分类冒充物品。
   // grp（docs/30 FR-4）：一个金额并列说到两样东西时，主物品承担全部金额，
@@ -523,8 +586,12 @@ export function parseSegment(seg, now, knownItems = [], learnedCats = {}) {  con
     raw: seg,
     amountCents: amt ? amt.cents : null,
     amountConf: amt ? amt.conf : 0,
-    type: findType(seg),
+    type,
     category: cat.name,
+    // 二级标签：判定与 Dart 同一条口径。网页版的账本没有 sub_category 这一栏
+    // （App 侧 DB v19 才有），所以这一栏在网页版只走到确认卡、不落库——
+    // 口径差如实登记在 docs/44 §25.5，不是漏实现。
+    subCategory: cat.sub,
     categoryConf: cat.conf,
     merchant: mer.name,
     merchantConf: mer.conf,
