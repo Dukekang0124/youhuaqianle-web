@@ -4,10 +4,11 @@ import { cn2num, cnDecimal, cnDigits, cnNumChars, normalizeText } from './cn.js'
 import {
   detectGoodsGroup, longestGoodsWord, goodsWordSpans, goodsWordLenAt, wordAt, brandWordAt } from './goods_detect.js';
 import {
-  CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, PLATFORM_WORDS, PAY_CHANNEL_WORDS,
+  CATEGORIES, BRANDS, INCOME_WORDS, REFUND_WORDS, INCOME_NODE_CUES,
+  PLATFORM_WORDS, PAY_CHANNEL_WORDS,
 } from './lexicon.js';
 import {
-  KIND_EXPENSE, KIND_FALLBACK, ownerOf, topsWords, subsWords, topOf,
+  KIND_EXPENSE, KIND_INCOME, KIND_FALLBACK, ownerOf, topsWords, subsWords, topOf,
 } from './taxonomy.js';
 
 const CAT = `[${cnNumChars}]`;
@@ -171,20 +172,27 @@ export function findAmount(seg) {
 }
 
 // 这一句里的钱是不是**他往外付**的。与 `app/lib/core/parser.dart` 的 `_isPayerSide`
-// 同一把闸（v16-S26 §三.1 的压岁钱闸 + P0-2 ⑵ 扩成的钱酬族，逐条同形状）：
-// * 压岁钱那一格：对象可以为空（「发压岁钱六百」是往外给），只有第一人称判回进账；
+// 同一把闸（v16-S26 §三.1 的压岁钱闸 + P0-2 ⑵ 扩成的钱酬族 + v16-S39 §三.1 把人情那一族
+// 从「压岁钱」一格扩成四格，逐条同形状）：
+// * 人情那一族（压岁钱/红包/礼金/拜年钱）：对象可以为空（「发压岁钱六百」「发红包两百」
+//   是往外给），只有第一人称判回进账；
+//   🔴 v16-S39：这一族**必须**随 `INCOME_NODE_CUES` 一起扩容——那张表能翻方向，
+//   「发红包200」原来靠「红包不在任何表里」才落到最后一行返回 expense，现在它进了表的
+//   左列，只有这一族能把它们按回支出（Dart 侧同一句话，parser.dart `_giftCues` 的注释）。
 // * 工资/奖金/补贴/津贴/稿费/劳务费：动词与那格钱之间**必须有一个对象**才算往外付，
 //   对象里混进虚词或数字不算（「发了工资8000」进账，「发员工工资8000」付出）；
 // * 「补贴/贴补 + 家用/家里/生活」是一个词，前面没有给/发也算付出。
-// 「红包」不在任何一族里：它从来就不在 INCOME_WORDS，落到最后一行返回 expense 就对了。
 const PAY_CUES = ['工资', '奖金', '补贴', '津贴', '稿费', '劳务费'];
+const GIFT_CUES = ['压岁钱', '红包', '礼金', '拜年钱'];
 const NOT_AN_OBJECT = /[我俺咱了就才也还又已经先再在去给和跟与0-9]/;
 
 function isPayerSide(seg) {
-  const gift = seg.match(/[给发]([^，。,.]{0,6})压岁钱/);
-  if (gift) {
-    const obj = gift[1] ?? '';
-    if (!obj.includes('我') && !obj.includes('俺') && !obj.includes('咱')) return true;
+  for (const w of GIFT_CUES) {
+    const gift = seg.match(new RegExp('[给发]([^，。,.]{0,6})' + w));
+    if (gift) {
+      const obj = gift[1] ?? '';
+      if (!obj.includes('我') && !obj.includes('俺') && !obj.includes('咱')) return true;
+    }
   }
   for (const w of PAY_CUES) {
     const m = seg.match(new RegExp('[给发]([^，。,.]{1,6})' + w));
@@ -193,10 +201,44 @@ function isPayerSide(seg) {
   return /(补贴|贴补)(家用|家里|生活)/.test(seg);
 }
 
+// —— 收入特征词的三道闸 + 唯一判点（v16-S39 §三.1，真源 app/lib/core/parser.dart）——
+// 表在 lexicon.js 的 `INCOME_NODE_CUES`。方向（findType）与落点（findCategory）读同一个函数，
+// 不允许一处翻成收入、另一处仍按词典判到别的树。
+// 🔴 口径差如实登记（docs/44 §39）：Dart 侧还有第五把尺 `balanceSaid(原文)`，它挡的是
+//   `voice_nlu` 资产那一支被收入那一支顶掉（「理财还有5万」的 `assetSubtype` 落成 null）。
+//   网页版没有资产与净资产这条链路（web/dist/js 里零处 asset），所以这里没有对应物——
+//   不是漏实现，是那一支在这里不存在。
+const CUE_OUTFLOW_VERBS = ['交', '缴', '付', '还', '买', '花'];
+
+// 整截否决：周期性扣款与亏损说的是**这一笔钱整体往外走**，不要求与特征词相邻。
+const CUE_OUTFLOW_SHAPE = /(每月|每周|每季|年年|扣款|扣了|自动|亏)/;
+
+// 存量否决按**词**做，不整截：「还有奖金三千」里那个「还有」是「另外」的意思，
+// 整截否决会把这一格的落点映射一起挡掉。
+const CUE_STOCK_WORDS = ['还有', '余额', '剩', '存有'];
+
+function incomeCueAt(seg) {
+  if (CUE_OUTFLOW_SHAPE.test(seg)) return null;
+  let best = null;
+  for (const [word, node] of Object.entries(INCOME_NODE_CUES)) {
+    if (!seg.includes(word)) continue;
+    // 「交/了 + 租金」那一支不算进账：动词与特征词紧贴，中间只容一个动态助词。
+    if (new RegExp(`(${CUE_OUTFLOW_VERBS.join('|')})(了|掉|过|上)?${word}`).test(seg)) continue;
+    // 「理财 + 还有」那一支也不算：那句话说的是存量，不是这一笔钱的来处。
+    if (new RegExp(`${word}[^，。,.]{0,6}(${CUE_STOCK_WORDS.join('|')})`).test(seg)) continue;
+    if (best !== null && [...word].length <= [...best.word].length) continue;
+    best = { word, node };
+  }
+  return best;
+}
+
 export function findType(seg) {
   if (REFUND_WORDS.some((w) => seg.includes(w))) return 'refund';
   if (isPayerSide(seg)) return 'expense';
   if (INCOME_WORDS.some((w) => seg.includes(w))) return 'income';
+  // 🔴 v16-S39 §三.1：一句里连「到账／收到」这样的动作词都没有，只有场景特征词
+  //   （「收房租九百」「红包六百」）时也算进账。与 Dart 的 findType 同一行。
+  if (incomeCueAt(seg)) return 'income';
   return 'expense';
 }
 
@@ -274,6 +316,14 @@ export function findCategory(seg, kind = KIND_EXPENSE) {
     return { name: b.category, sub: '', conf: 0.95 };
   }
   const t = longestWord(topsWords(kind), seg);
+  // 🔴 v16-S39 §三.1／拍板③：收入那一侧多一张「特征词 → 现有节点」的映射表，它只当
+  // **额外的一级候选**参与同一条「更长者胜」的裁决，而且只在**严格更长**时才顶掉词典里
+  // 已经认出来的那一格；只在收入这一侧参与，支出/退款一个字节都不变。二级照旧在**它自己那一棵**里找。
+  const cue = kind === KIND_INCOME ? incomeCueAt(seg) : null;
+  if (cue && (!t || [...cue.word].length > [...t.word].length)) {
+    const s = longestWord(subsWords(kind, cue.node), seg);
+    return { name: cue.node, sub: s ? s.sub : '', conf: 0.85 };
+  }
   if (t) {
     const s = longestWord(subsWords(kind, t.top), seg);
     return {
