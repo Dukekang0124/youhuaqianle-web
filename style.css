@@ -45,6 +45,9 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 .brand b { font-size: 17px; letter-spacing: .5px; }
 .brand i { font-style: normal; margin-left: 8px; font-size: 11px; color: var(--gold); border: 1px solid #3a3a2a; border-radius: 999px; padding: 1px 8px; }
 .localchip { font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
+.topright { display: flex; align-items: center; gap: 8px; }
+a.localchip { text-decoration: none; }
+a.localchip:hover { color: var(--gold); border-color: #5a5a3a; }
 
 /* 快记 */
 .quick { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-top: 4px; }
@@ -229,3 +232,66 @@ button { font: inherit; }
   #view-list .filters, #view-list .sumline, #view-list #groups, #view-list .empty { grid-column: 1 / -1; }
   .tabbar { max-width: 560px; }
 }
+
+/* ---------- 官方网站（home.html）：同一套令牌，不另开色表 ---------- */
+/* 所有规则都锁在 body.hm 里，网页版（index.html）一行样式都不会被这些覆盖影响 */
+.hm-wrap { max-width: 720px; margin: 0 auto; padding: 0 18px 72px; }
+body.hm .topbar { position: static; background: none; }
+body.hm a.localchip { text-decoration: none; }
+.hm-hero { padding: 26px 0 6px; }
+.hm-hero h1 { font-size: 30px; line-height: 1.25; letter-spacing: -.5px; margin: 0 0 12px; color: var(--text); font-weight: 800; }
+.hm-lede { font-size: 15px; color: var(--sub); margin: 0 0 20px; }
+.hm-cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 4px; }
+.hm-btn { display: inline-block; text-decoration: none; text-align: center; font: inherit; }
+.hm-btn.primary { flex: 1 1 220px; }
+.hm-btn.ghost { flex: 0 0 auto; }
+.hm-note { font-size: 12.5px; color: var(--dim); margin: 12px 0 0; }
+.hm-block { margin-top: 34px; }
+body.hm .sechead { font-size: 15px; color: var(--gold-dim); margin: 0 0 12px; letter-spacing: .3px; }
+.hm-grid { display: grid; gap: 12px; }
+body.hm .big { font-size: 17px; color: var(--gold); line-height: 1.35; margin: 0 0 8px; font-weight: 700; letter-spacing: 0; }
+.hm-p { font-size: 14px; color: var(--sub); margin: 0 0 10px; }
+.hm-p:last-child { margin-bottom: 0; }
+.hm-list { margin: 0; padding-left: 20px; font-size: 14px; color: var(--sub); }
+.hm-list li { margin-bottom: 10px; }
+.hm-list b { color: var(--text); }
+.hm-table { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.hm-tr { display: grid; grid-template-columns: 1fr 58px 130px; gap: 8px; padding: 11px 13px; font-size: 13.5px; border-top: 1px solid #24242c; align-items: baseline; }
+.hm-tr:first-child { border-top: none; }
+.hm-tr span:nth-child(1) { color: var(--text); }
+.hm-tr span:nth-child(2), .hm-tr span:nth-child(3) { text-align: center; color: var(--green); font-size: 13px; }
+.hm-th { background: var(--card2); }
+.hm-th span { color: var(--gold-dim); font-size: 12px; letter-spacing: .5px; }
+.hm-only span:nth-child(3) { color: var(--dim); font-size: 12px; }
+.hm-faq { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; background: var(--card); }
+.hm-faq summary { cursor: pointer; font-size: 14px; color: var(--text); list-style: none; }
+.hm-faq summary::-webkit-details-marker { display: none; }
+.hm-faq summary::before { content: "＋ "; color: var(--gold); }
+.hm-faq[open] summary::before { content: "－ "; color: var(--gold); }
+.hm-faq .hm-p { margin-top: 10px; }
+.hm-steps { margin: 0; padding-left: 20px; font-size: 14px; color: var(--sub); }
+.hm-steps li { margin-bottom: 8px; }
+.hm-foot { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--sub); }
+.hm-foot a { color: var(--gold); }
+.hm-footsub { font-size: 12px; color: var(--dim); }
+@media (min-width: 900px) {
+  .hm-wrap { max-width: 900px; }
+  .hm-hero h1 { font-size: 40px; }
+  .hm-grid { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* ---------- 下载页（download.html）：同一套令牌 ---------- */
+.dl-sub { font-size: 13.5px; color: var(--dim); margin: 8px 2px 0; }
+a.dl-btn { display: block; width: 100%; text-align: center; text-decoration: none; font: inherit; }
+a.dl-btn.ghost { cursor: default; }
+.dl-dl { margin: 14px 0 0; display: grid; grid-template-columns: 64px 1fr; gap: 6px 12px; font-size: 13.5px; }
+.dl-dl dt { color: var(--dim); }
+.dl-dl dd { margin: 0; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.dl-pre { margin: 10px 0; white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; font-size: 13px; user-select: all; }
+.dl-p { font-size: 14px; color: var(--sub); margin: 0 0 10px; }
+.dl-p a { color: var(--gold); }
+.dl-log { white-space: pre-wrap; font-size: 13.5px; color: var(--sub); margin-top: 8px; }
+.dl-note { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; }
+.dl-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line); }
+details summary { cursor: pointer; font-size: 13px; color: var(--dim); margin-top: 12px; }

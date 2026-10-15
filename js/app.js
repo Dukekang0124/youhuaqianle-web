@@ -127,7 +127,7 @@ function renderPending() {
         </select></label>
         <label style="grid-column:1/-1">时间<input data-f="when" type="datetime-local" value="${dtLocal(new Date(p.occurredAt))}"></label>
       </div>
-      ${miss ? '<p class="warn-miss">没听出金额，补一下就能入账</p>' : ''}
+      <p class="warn-miss" data-w="amt"${miss ? '' : ' hidden'}>没听出金额，补一下就能入账</p>
       ${extrasNote ? `<p class="warn-miss extras" data-a="extras" title="点一下去掉">${esc(extrasNote)}</p>` : ''}
       <div class="pfoot">
         <button class="primary" data-a="ok" type="button">入账</button>
@@ -144,7 +144,13 @@ function renderPending() {
       inp.onchange = () => {
         const p = pending[i];
         const f = inp.dataset.f;
-        if (f === 'amount') p.amountCents = inp.value === '' ? null : Math.round(parseFloat(inp.value) * 100);
+        if (f === 'amount') {
+          p.amountCents = inp.value === '' ? null : Math.round(parseFloat(inp.value) * 100);
+          // 与 App 确认卡同一条：那边每敲一下金额就 setState，这边补好了那行提醒必须当场收掉，
+          // 不许「金额已经有了、屏幕上还说没听出」。只收放这一行、不整张重画，是为了不丢输入焦点。
+          const w = card.querySelector('[data-w="amt"]');
+          if (w) w.hidden = !(p.amountCents === null || p.amountCents === undefined);
+        }
         else if (f === 'when') p.occurredAt = new Date(inp.value);
         else if (f === 'item') {
           p.item = inp.value.trim();
@@ -180,13 +186,14 @@ function commit(idxs) {
   const now = new Date();
   const learned = goodsCatSuggestions(txs);
   let added = 0;
-  const kept = [];
+  const chosen = new Set(idxs);
+  const keptIdx = new Set();
   idxs.forEach((i) => {
     const p = pending[i];
     if (!p) return;
-    if (!p.amountCents || p.amountCents <= 0) { kept.push(p); return; }
+    if (!p.amountCents || p.amountCents <= 0) { keptIdx.add(i); return; }
     const err = goodsNameProblem((p.item ?? '').trim());
-    if (err) { toast(err); kept.push(p); return; }
+    if (err) { toast(err); keptIdx.add(i); return; }
     const g = goodsOf(p, learned);
     txs = addTx(txs, {
       type: p.type, amountCents: p.amountCents, category: p.category || '其他',
@@ -200,7 +207,9 @@ function commit(idxs) {
     });
     added++;
   });
-  pending = kept;
+  // 留在卡上的只有两种：这批里没落库成功的（补金额），和这次根本没点的。
+  // 后半句是这个函数曾经的缺陷：只按 idxs 重建 pending，逐张入账时没点的那几张会静默消失。
+  pending = pending.filter((_, i) => keptIdx.has(i) || !chosen.has(i));
   if (added) toast(`已记 ${added} 笔 · 账本在你这台设备上`);
   renderPending();
   render();
