@@ -81,7 +81,17 @@
           <button data-range="all" type="button">全部</button>
         </div>
         <input id="search" type="search" placeholder="搜商户 / 分类 / 原话">
-        <select id="cat-filter"><option value="">全部分类</option></select>
+        <!-- 一级/二级多选（v16-S48 与 App 的明细页同一条筛子）：空＝全部，同组内是「或」，
+             跨组是「且」；「未细分」不是可点的筛子，所以二级里不出现空串那一格。 -->
+        <div class="multisel" id="cat-chips" role="group" aria-label="分类多选"></div>
+        <div class="multisel" id="sub-chips" role="group" aria-label="二级多选"></div>
+        <div class="btnrow tight">
+          <button id="sub-all" class="ghost" type="button">全选</button>
+          <button id="sub-invert" class="ghost" type="button">反选</button>
+          <button id="sub-clear" class="ghost" type="button">清空二级</button>
+          <button id="f-clear" class="ghost" type="button">清除全部筛选</button>
+        </div>
+        <div class="fchips" id="filter-chips"></div>
       </div>
       <div class="sumline" id="list-sum"></div>
       <div id="groups"></div>
@@ -114,6 +124,16 @@
       <div class="card">
         <div class="sechead">钱都去哪了</div>
         <div id="st-cats" class="catrows"></div>
+        <p class="line dim">点一行看它下面拆开的二级；这一排每一格都留着（含负的），所以加起来等于上面那一格。</p>
+      </div>
+      <div class="card" id="st-sub-card" hidden>
+        <div class="sechead" id="st-sub-head">按二级拆开</div>
+        <div id="st-subs" class="catrows"></div>
+      </div>
+      <div class="card" id="st-budget-card" hidden>
+        <div class="sechead">分类预算（本月）</div>
+        <ul id="st-budgets" class="rows"></ul>
+        <p class="line dim">档位判据与 App 同一处：达 80% 黄、达 100% 红；净额含退款抵扣。</p>
       </div>
       <div class="card">
         <div class="sechead">花得最多的店</div>
@@ -133,6 +153,30 @@
         <label class="field"><span>本月总预算（元）</span><input id="inp-budget" type="number" min="0" step="1" placeholder="不设"></label>
         <label class="field"><span>月收入（元，用于储蓄率）</span><input id="inp-income" type="number" min="0" step="1" placeholder="不设"></label>
         <p class="line dim">预算只影响本页的红绿灯，不会提醒任何人——网页版没有通知，也没有服务器。</p>
+      </div>
+
+      <div class="card">
+        <div class="sechead">分类预算（信封）</div>
+        <p class="line dim">给某一层设一个月度线：到 80% 变黄、到 100% 变红。设 0 就是撤掉这条线（不是「拦在 0 元」）。</p>
+        <div id="cat-budgets"></div>
+      </div>
+
+      <div class="card">
+        <div class="sechead">分类</div>
+        <p class="line dim">内置的可停用、不可删（历史流水还要显示）；自己建的能删。名字最多 6 个字、最多建 20 个。</p>
+        <div id="cat-manage"></div>
+        <div class="btnrow">
+          <input id="new-cat-name" type="text" maxlength="8" placeholder="新分类名字" aria-label="新分类名字">
+          <select id="new-cat-kind" aria-label="挂在哪个方向">
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+            <option value="refund">退款</option>
+          </select>
+          <button id="new-cat-add" class="ghost" type="button">添加</button>
+        </div>
+        <p class="line dim" id="new-cat-words-hint">关键词（可选，「，」分隔）：进了词表后，说话或打字带这个词就归到这一类。</p>
+        <input id="new-cat-words" type="text" placeholder="例：猫粮，主食罐" aria-label="新分类关键词">
+        <p class="line" id="cat-msg" hidden></p>
       </div>
 
       <div class="card">

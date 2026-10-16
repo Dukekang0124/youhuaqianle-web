@@ -26,13 +26,21 @@ export function savingsRatePct(incomeCents, netExpenseCents) {
   return (v < 0 ? -1 : 1) * Math.round(Math.abs(v));
 }
 
-// 分类净额（退款抵扣原分类）
+// 分类净额（退款抵扣原分类）—— 与 Dart `netByCategory` 同一条：退款若关联了原单且那一笔是支出，
+// 钱就从**原单那一类**里扣，不再记在退款自己那一类；没关联（或关联不到/对方不是支出）照旧按本笔那一类。
+// 🔴 这一处是「归位」的唯一定义：界面上任何按分类算的钱都从这里取，别再在 app.js 里拼第二份。
 export function netByCategory(txs) {
+  const list = [...txs];
+  const byId = new Map();
+  for (const t of list) if (t.id != null) byId.set(t.id, t);
   const out = {};
-  for (const t of txs) {
+  for (const t of list) {
     if (t.type === 'income') continue;
     const delta = t.type === 'expense' ? t.amountCents : -t.amountCents;
-    out[t.category] = (out[t.category] ?? 0) + delta;
+    let cat = t.category;
+    const src = t.refundOf != null ? byId.get(t.refundOf) : null;
+    if (src && src.type === 'expense') cat = src.category;
+    out[cat] = (out[cat] ?? 0) + delta;
   }
   return out;
 }

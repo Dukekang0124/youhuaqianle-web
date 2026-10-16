@@ -1,6 +1,6 @@
 // 又花钱了 · 网页版界面层：只做渲染与交互，判定全部走 js/ 里的纯函数（与 App core/ 同口径）
 import { parseText } from './parser.js';
-import { CATEGORIES, categoryByName } from './lexicon.js';
+import { CATEGORIES, categoryByName as CAT_VIEW_BASE } from './lexicon.js';
 import { moneyOf, netByCategory, centsStr, recordStreak, savingsRatePct } from './money.js';
 import {
   PERIOD, SCOPE, periodRange, previousRange, txsInPeriod, elapsedUnits, scopeTotal,
@@ -11,13 +11,25 @@ import {
   loadTxs, addTx, updateTx, removeTx, restoreTx, loadMeta, saveMeta, clearTxs,
   buildJson, buildCsv, parseImportJson, importTxs, localTime, backupNudge,
   goodsKnownItems, goodsCatSuggestions,
+  loadTax, saveTax, applyRuntimeTax, setCategoryBudget, addCategory, removeCategory,
 } from './store.js';
 import { goodsCatForName, itemExtrasNote, manualGoods, goodsNameProblem } from './goods_detect.js';
 import { GOODS_CATEGORIES, GOODS_OTHER, goodsIcon } from './goods_lexicon.js';
+import { TxFilters } from './filters.js';
+import { topsForPicker, subsForPicker, ownerOf, KIND_FALLBACK } from './taxonomy.js';
+import { categoryIcon, disableProblem, deleteProblem, activeCategories, builtinCategoryNames } from './categories.js';
+import { budgetAlertsForMonth, budgetLevel } from './budget.js';
+import { subRows } from './stats.js';
 
 const $ = (id) => document.getElementById(id);
 const yuan = (cents) => centsStr(cents);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 图标先查内置平表，查不到再走运行时生效表（自定义分类、导入来的陌生名字都要显示得出来）。
+const catView = (name) => {
+  const c = CAT_VIEW_BASE(name);
+  return c && c.emoji ? c : { name, emoji: categoryIcon(name) };
+};
 
 // 物品大类下拉：14 类 + 兜底，书写次序就是词表里的次序（平手时靠它保证跨设备同答案）
 const goodsOptions = (selected) => [...GOODS_CATEGORIES, GOODS_OTHER]
@@ -26,9 +38,13 @@ const goodsOptions = (selected) => [...GOODS_CATEGORIES, GOODS_OTHER]
 
 let txs = loadTxs();
 let meta = loadMeta();
+// 分类与分类预算：读盘 → 灌运行时（判类词表、选择器、图标都跟着走）→ 界面只读这一份
+let tax = applyRuntimeTax(loadTax());
 let pending = [];
 let lastDeleted = null;
-const ui = { view: 'today', range: 'month', q: '', cat: '', period: PERIOD.month, scope: SCOPE.net };
+// `f` 是那把筛子本身（filters.js 的 TxFilters，与 App 的 LedgerState.filters 同形）；
+// 界面上不再另存一个 ui.cat——多存一份就有「筛子与高亮不同步」那种第二次答案。
+const ui = { view: 'today', range: 'month', q: '', f: new TxFilters(), period: PERIOD.month, scope: SCOPE.net, subTop: '' };
 
 // ---------- 通用 ----------
 let toastTimer = null;
@@ -320,15 +336,15 @@ function scopedTxs() {
 }
 
 function filtered() {
-  const q = ui.q.trim().toLowerCase();
-  return scopedTxs()
-    .filter((t) => !ui.cat || t.category === ui.cat)
-    .filter((t) => !q || `${t.merchant}${t.category}${t.raw}`.toLowerCase().includes(q))
-    .sort((a, b) => b.occurredAt - a.occurredAt);
+  // 筛子整体交给 TxFilters（与 App 同一处判据）：网页版从前在这里自己写「分类相等 + 三个字段拼串搜」，
+  // 那是第二份筛选口径——同一份账，手机上 12 笔、网页上 14 笔时界面上只是一个角标数字，看不出来。
+  const f = ui.f;
+  f.query = ui.q.trim();
+  return f.apply(scopedTxs());
 }
 
 function txRow(t) {
-  const c = categoryByName(t.category);
+  const c = catView(t.category);
   const sign = t.type === 'income' ? '+' : t.type === 'refund' ? '−' : '';
   const cls = t.type === 'income' ? 'amt in' : 'amt';
   // 物品跟在分类后面（与 App 明细行同一条：`' · ${goodsIcon(goods_cat)}${item}'`）。
@@ -384,13 +400,76 @@ function renderList() {
   bindRows($('groups'));
 }
 
-function fillCatFilter() {
-  const used = [...new Set(txs.map((t) => t.category))].sort();
-  $('cat-filter').innerHTML = `<option value="">全部分类</option>` + used.map((c) => {
-    const cat = categoryByName(c);
-    return `<option value="${esc(c)}"${c === ui.cat ? ' selected' : ''}>${cat.emoji} ${esc(c)}</option>`;
-  }).join('');
+// 明细页那排多选（v16-S48）：一级、二级各自一组 toggle chip，勾的是「当前候选」，
+// 候选按方向过滤这一件事走 taxonomy 的 topsForPicker/subsForPicker（与 App 同一处）。
+// 二级只在已经勾了一级时才出现——没勾一级就摊开整棵树的二级，会把「正餐」和收入树的同名格子混在一起。
+function subCandidates() {
+  const cats = [...ui.f.cats];
+  if (!cats.length) return [];
+  const out = [];
+  for (const c of cats) {
+    const k = ownerOf(c) ?? 'expense';
+    for (const t of subsForPicker(k, c, tax.disabled)) if (!out.some((e) => e.name === t.name && e.kind === k)) out.push({ ...t, kind: k });
+  }
+  return out;
 }
+
+function fillCatFilter() {
+  const kinds = ui.f.type ? [ui.f.type] : ['expense', 'income', 'refund'];
+  const tops = [];
+  for (const k of kinds) for (const t of topsForPicker(k, tax.disabled)) if (!tops.some((e) => e.name === t.name)) tops.push(t);
+  // 账本里出现过、但当前方向候选没有的名字（停用/别棵树/自定义被删过）也要能撤——
+  // 撤不掉就是界面把一把已经生效的筛子藏起来了，同 App 的 _topOrphans 那格。
+  const orphans = [...ui.f.cats].filter((c) => !tops.some((t) => t.name === c));
+  $('cat-chips').innerHTML =
+    [['expense', '只看支出'], ['income', '只看收入'], ['refund', '只看退款']]
+      .map(([k, label]) => chipHtml(ui.f.type === k, label, `type:${k}`))
+      .concat(
+        tops.map((t) => chipHtml(ui.f.cats.has(t.name), `${t.emoji || '🏷'} ${esc(t.name)}`, `cat:${esc(t.name)}`)),
+        orphans.map((c) => chipHtml(true, `⚠ ${esc(c)}（这一格不在当前方向）`, `cat:${esc(c)}`)),
+      )
+    .join('');
+  const subs = subCandidates();
+  const subOrphans = [...ui.f.subs].filter((s) => !subs.some((t) => t.name === s));
+  $('sub-chips').innerHTML = subs.length
+    ? subs.map((t) => chipHtml(ui.f.subs.has(t.name), esc(t.name), `sub:${esc(t.name)}`)).concat(
+        subOrphans.map((s) => chipHtml(true, `⚠ ${esc(s)}`, `sub:${esc(s)}`)),
+      ).join('')
+    : `<span class="dim">${ui.f.cats.size ? '这一级下面没有二级可勾' : '先勾上面的一级，才谈二级'}</span>`;
+  $('filter-chips').innerHTML = ui.f.chips().map(([k, label]) => chipHtml(true, esc(label), `drop:${k}`)).join('');
+  $('sub-all').disabled = subs.length === 0;
+  $('sub-invert').disabled = subs.length === 0;
+  $('sub-clear').disabled = ui.f.subs.size === 0;
+  $('f-clear').disabled = !ui.f.hasCondition;
+  bindChips();
+}
+
+function chipHtml(on, label, key) {
+  return `<button class="fchip${on ? ' on' : ''}" type="button" data-k="${key}" aria-pressed="${on}">${label}</button>`;
+}
+
+function bindChips() {
+  document.querySelectorAll('.fchip').forEach((b) => {
+    b.onclick = () => {
+      const k = b.dataset.k;
+      if (k.startsWith('cat:')) toggleSet(ui.f.cats, k.slice(4));
+      else if (k.startsWith('sub:')) toggleSet(ui.f.subs, k.slice(4));
+      else if (k.startsWith('type:')) {
+        const v = k.slice(5);
+        // 换方向不清掉已经勾上的一级/二级（同 App：那些格子变成「孤儿」仍显示着，撤得掉）。
+        // 悄悄替他清空＝机器擅自动他的筛选，而屏幕上是沉默的。
+        ui.f.type = ui.f.type === v ? '' : v;
+      } else if (k.startsWith('drop:')) ui.f.remove(k.slice(5));
+      render();
+    };
+  });
+}
+
+function toggleSet(s, name) {
+  if (s.has(name)) s.delete(name);
+  else s.add(name);
+}
+
 
 // ---------- 今日 ----------
 function renderToday() {
@@ -406,7 +485,7 @@ function renderToday() {
 
   const maxTx = day.filter((t) => t.type === 'expense').sort((a, b) => b.amountCents - a.amountCents)[0];
   $('today-max').textContent = maxTx
-    ? `最大一笔：${categoryByName(maxTx.category).emoji} ${maxTx.merchant || maxTx.category} ¥${yuan(maxTx.amountCents)}`
+    ? `最大一笔：${catView(maxTx.category).emoji} ${maxTx.merchant || maxTx.category} ¥${yuan(maxTx.amountCents)}`
     : '今天还没有消费记录，记一笔就有了';
 
   const [ms, me] = periodRange(PERIOD.month, now);
@@ -422,8 +501,12 @@ function renderToday() {
     line.hidden = false;
     line.textContent = `本月预算 ¥${yuan(budget)} · 已花(净额) ¥${yuan(monthNet)}（${Math.round(tl.pct * 100)}%）${lampEl.textContent} · 剩 ¥${yuan(tl.shownLeft)}`;
     const per = $('budget-per');
-    per.hidden = !(tl.pct >= 0.8 && tl.perDay > 0);
-    per.textContent = tl.pct >= 0.8 && tl.perDay > 0
+    // 「日均那一行什么时候出现」以前在这里再写一遍 `pct >= 0.8`（浮点），于是同一个边界有两把尺：
+    // 灯的档位由 budgetLevel 用整数交叉相乘判，pct 是除出来的小数，差一分的那一笔两边不同答案。
+    // 现在只读红绿灯给出的档位号：那一行与灯同时出现，谁也不比谁早一分。
+    const warn = tl.level != null && tl.perDay > 0;
+    per.hidden = !warn;
+    per.textContent = warn
       ? `还能花 ¥${yuan(tl.left)}，剩下的日子日均 ¥${yuan(tl.perDay)}`
       : '';
   } else {
@@ -472,10 +555,20 @@ function renderStats() {
 
   const rows = mergeTopRows(catRows(cur, ui.scope));
   $('st-cats').innerHTML = rows.length ? rows.map(([name, v]) => {
-    const cat = categoryByName(name);
-    return `<div class="catrow"><div class="lab"><span>${cat.emoji} ${esc(name)}</span><b>¥${yuan(v)} · ${Math.round(v / curTotal * 100)}%</b></div>
+    const cat = catView(name);
+    return `<div class="catrow drill" data-top="${esc(name)}" role="button" tabindex="0"><div class="lab"><span>${cat.emoji} ${esc(name)}</span><b>¥${yuan(v)} · ${Math.round(v / curTotal * 100)}%</b></div>
       <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v / rows[0][1] * 100))}%"></div></div></div>`;
   }).join('') : '<p class="line dim">这个范围里还没有数据</p>';
+  document.querySelectorAll('#st-cats .drill').forEach((el) => {
+    el.onclick = () => {
+      // 再点同一行收回（同 App 的下钻那一格）：这里只改「展开谁」，不改筛子——
+      // 点了下钻就把筛选条件写进去，等于替他做了一个他没做的决定。
+      ui.subTop = ui.subTop === el.dataset.top ? '' : el.dataset.top;
+      renderStats();
+    };
+  });
+  renderSubRows(cur);
+  renderBudgetAlerts();
 
   const mrows = merchantTop(cur, ui.scope);
   $('st-merchants').innerHTML = mrows.length ? mrows.map((r) =>
@@ -498,9 +591,144 @@ function renderMe() {
   $('inp-voice').checked = !!meta.voiceOn;
   $('micnote').hidden = !meta.voiceOn;
   $('last-backup').textContent = meta.lastExportAt ? `上次备份：${meta.lastExportAt}` : '这笔账本还没导出过备份';
+  renderCatBudgets();
+  renderCatManage();
   const m = moneyOf(txsInPeriod(txs, ...periodRange(PERIOD.month, new Date())));
   const rate = savingsRatePct(meta.incomeCents || 0, m.net);
   $('ver').textContent = `又花钱了 网页版 v0.1.1 · 本机 ${txs.length} 笔 · 本月净支出 ¥${yuan(m.net)}${rate === null ? '' : ` · 储蓄率 ${rate}%`}`;
+}
+
+// 分类预算（信封）：候选按方向给（支出一棵树就够界面用），每格一个数，设 0 即撤线。
+// 🔴 这一页只写 tax.catBudgets，不写月度总预算那一格——两条线各归各的，混在一格里就分不清了。
+function renderCatBudgets() {
+  const tops = topsForPicker('expense', tax.disabled).filter((t) => t.parent === '');
+  $('cat-budgets').innerHTML = tops.map((t) => {
+    const cents = tax.catBudgets[t.name] ?? 0;
+    return `<label class="field"><span>${t.emoji || '🏷'} ${esc(t.name)}</span><input data-cat="${esc(t.name)}" class="cat-budget" type="number" min="0" step="1" placeholder="不设" value="${cents ? cents / 100 : ''}"></label>`;
+  }).join('');
+  document.querySelectorAll('.cat-budget').forEach((inp) => {
+    inp.onchange = () => {
+      tax = saveTax({ catBudgets: setCategoryBudget(inp.dataset.cat, Math.round(parseFloat(inp.value || '0') * 100)) });
+      render();
+    };
+  });
+}
+
+function renderCatManage() {
+  const builtin = CATEGORIES.filter((c) => !builtinCategoryNames().has(c.name) ? false : true);
+  const rows = [];
+  for (const c of builtin) {
+    const off = tax.disabled.has(c.name);
+    rows.push(
+      `<div class="catrow"><span>${c.emoji} ${esc(c.name)}${off ? '（已停用）' : ''}</span>` +
+        `<button data-name="${esc(c.name)}" class="ghost cat-toggle" type="button">${off ? '恢复' : '停用'}</button></div>`
+    );
+  }
+  for (const c of tax.custom) {
+    rows.push(
+      `<div class="catrow"><span>${c.emoji} ${esc(c.name)}（自定义 · ${ownerLabel(c.kind)}）</span>` +
+        `<button data-name="${esc(c.name)}" class="ghost cat-del" type="button">删除</button></div>`
+    );
+  }
+  $('cat-manage').innerHTML = rows.join('');
+  document.querySelectorAll('.cat-toggle').forEach((b) => {
+    b.onclick = () => {
+      const name = b.dataset.name;
+      const active = activeCategories().map((c) => c.name);
+      if (!tax.disabled.has(name)) {
+        const problem = disableProblem(name, active.filter((n) => !tax.disabled.has(n)), builtinCategoryNames());
+        if (problem) return sayCatMsg(problem);
+        tax = saveTax({ disabled: new Set([...tax.disabled, name]) });
+      } else {
+        const next = new Set(tax.disabled);
+        next.delete(name);
+        tax = saveTax({ disabled: next });
+      }
+      sayCatMsg('');
+      render();
+    };
+  });
+  document.querySelectorAll('.cat-del').forEach((b) => {
+    b.onclick = () => {
+      const name = b.dataset.name;
+      const r = removeCategory(tax, txs, name);
+      const kinds = [...new Set(r.kinds)];
+      const fallbacks = kinds.map((k) => KIND_FALLBACK[k]).filter(Boolean);
+      const problem = deleteProblem(name, r.used, fallbacks);
+      if (problem && !confirm(problem + ' 要现在就把这些账挪过去吗？（删分类本身不动流水）')) return;
+      tax = saveTax({ custom: r.custom, catBudgets: r.catBudgets });
+      // 删了分类，那些账归到各自方向的兜底（同 App 的 removeCategory 那句 kindFallback）。
+      if (r.used > 0 && fallbacks.length) {
+        for (const k of kinds) {
+          const to = KIND_FALLBACK[k];
+          for (const t of txs.filter((x) => x.type === k && x.category === name)) txs = updateTx(txs, { id: t.id, category: to, subCategory: '' });
+        }
+      }
+      sayCatMsg(problem ? `删掉「${name}」，${r.used} 笔归到兜底那一格` : `删掉了空的「${name}」`);
+      render();
+    };
+  });
+  $('new-cat-add').onclick = () => {
+    const r = addCategory(tax, $('new-cat-name').value, {
+      wordsRaw: $('new-cat-words').value,
+      kind: $('new-cat-kind').value,
+    });
+    if (r.error) return sayCatMsg(r.error);
+    tax = saveTax({ custom: r.custom });
+    $('new-cat-name').value = '';
+    $('new-cat-words').value = '';
+    sayCatMsg(`加好了：${r.name}`);
+    render();
+  };
+}
+
+function ownerLabel(k) {
+  return k === 'income' ? '收入' : k === 'refund' ? '退款' : '支出';
+}
+
+function sayCatMsg(text) {
+  const el = $('cat-msg');
+  el.hidden = text === '';
+  el.textContent = text;
+}
+
+// 二级那一排（统计多维的第二根轴）：每一格都留着，含负的——
+// 一级净 ¥3.00 可能是「饮品 ¥5 − 正餐 ¥2」凑出来的，丢掉负的那格，这一排加起来会比它挂的那行还多。
+// 所以最后那一行把「Σ 二级」与「一级那一格」并排放出来：口径差要在屏幕上看得见，不许藏在算法里。
+function renderSubRows(cur) {
+  const card = $('st-sub-card');
+  if (!ui.subTop) {
+    card.hidden = true;
+    $('st-subs').innerHTML = '';
+    return;
+  }
+  card.hidden = false;
+  $('st-sub-head').textContent = `按二级拆开：${ui.subTop}`;
+  const rows = subRows(cur, ui.scope, ui.subTop);
+  const sum = rows.reduce((a, [, v]) => a + v, 0);
+  $('st-subs').innerHTML = rows.length
+    ? rows.map(([name, v]) => {
+        const share = sum > 0 ? Math.round((v / sum) * 100) : 0;
+        return `<div class="catrow"><div class="lab"><span>${esc(name)}</span><b>${v < 0 ? '−' : ''}¥${yuan(Math.abs(v))} · ${share}%</b></div>
+          <div class="track"><div class="fill${v < 0 ? ' neg' : ''}" style="width:${Math.max(2, Math.min(100, Math.abs(sum) > 0 ? Math.round(Math.abs(v) / Math.abs(sum) * 100) : 0))}%"></div></div></div>`;
+      }).join('') + `<p class="line dim">二级合计 ¥${yuan(sum)}（一级那一格也是这个数才对得上；「未细分」是那些没记过二级的账）</p>`
+    : '<p class="line dim">这一级下面还没有可拆的二级</p>';
+}
+
+// 分类预算那一排：档位号一律由 budgetLevel 产出（与红绿灯同一函数），界面只翻译颜色。
+function renderBudgetAlerts() {
+  const now = new Date();
+  const alerts = budgetAlertsForMonth(tax.catBudgets, txs, now);
+  $('st-budget-card').hidden = alerts.length === 0;
+  $('st-budgets').innerHTML = alerts
+    .map((a) => {
+      const level = budgetLevel(a.spentCents, a.budgetCents);
+      const color = level === 100 ? 'over' : 'warn';
+      const avg = a.count > 0 ? Math.round(a.spentCents / a.count) : 0;
+      return `<li><span>${catView(a.category).emoji} ${esc(a.category)} <small>${a.count} 笔 · 均价 ¥${yuan(avg)}</small></span>` +
+        `<b class="lamp ${color}">${level}% · ¥${yuan(a.spentCents)} / ¥${yuan(a.budgetCents)}</b></li>`;
+    })
+    .join('');
 }
 
 function render() {
@@ -558,7 +786,7 @@ function stampExport() {
   meta = saveMeta({ ...meta, lastExportAt: localTime(new Date()) });
 }
 
-const jsonText = () => buildJson(txs, meta.budgetCents ?? 0);
+const jsonText = () => buildJson(txs, meta.budgetCents ?? 0, tax);
 
 function exportJson() {
   download(`又花钱了-网页版导出-${localTime(new Date()).slice(0, 10)}.json`, jsonText(), 'application/json');
@@ -637,7 +865,23 @@ function bind() {
     };
   });
   $('search').oninput = (e) => { ui.q = e.target.value; renderList(); };
-  $('cat-filter').onchange = (e) => { ui.cat = e.target.value; renderList(); };
+  $('sub-all').onclick = () => { subCandidates().forEach((t) => ui.f.subs.add(t.name)); render(); };
+  $('sub-invert').onclick = () => {
+    // 全选→反选＝一个都不留（同 App 那条判据）：它作用在「当前候选」上，不动别的树勾上的名字。
+    for (const t of subCandidates()) {
+      if (ui.f.subs.has(t.name)) ui.f.subs.delete(t.name);
+      else ui.f.subs.add(t.name);
+    }
+    render();
+  };
+  $('sub-clear').onclick = () => { ui.f.subs = new Set(); render(); };
+  $('f-clear').onclick = () => {
+    const sort = ui.f.sort;
+    ui.f = new TxFilters();
+    ui.f.sort = sort;
+    ui.subTop = '';
+    render();
+  };
 
   $('inp-budget').onchange = (e) => {
     meta = saveMeta({ budgetCents: Math.max(0, Math.round(parseFloat(e.target.value || '0') * 100)) });
@@ -666,10 +910,19 @@ function bind() {
     const msg = $('imp-msg');
     msg.hidden = false;
     try {
-      const { rows, skipped } = parseImportJson($('imp-box').value);
+      const { rows, skipped, custom, disabled, catBudgets } = parseImportJson($('imp-box').value);
       const r = importTxs(txs, rows);
       txs = r.txs;
-      msg.textContent = `导入 ${r.added} 笔${skipped ? `，跳过坏行 ${skipped} 条` : ''}${rows.length - r.added ? `，重复 ${rows.length - r.added} 条已忽略` : ''}`;
+      // 文件里带着分类段/预算段就跟着收（这是「导入」，不是「顺手备份一次」）：
+      // 收了账却把停用的分类又放出来，等于把他在这台手机上的决定抹掉了。
+      if (custom || disabled || catBudgets) {
+        tax = saveTax({
+          custom: custom ?? tax.custom,
+          disabled: disabled ? new Set(disabled) : tax.disabled,
+          catBudgets: catBudgets ?? tax.catBudgets,
+        });
+      }
+      msg.textContent = `导入 ${r.added} 笔${skipped ? `，跳过坏行 ${skipped} 条` : ''}${rows.length - r.added ? `，重复 ${rows.length - r.added} 条已忽略` : ''}${custom || disabled ? '，分类一并收下了' : ''}`;
       $('imp-box').value = '';
       render();
     } catch (e) {

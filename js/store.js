@@ -1,10 +1,16 @@
 // 网页版本地账本：localStorage 真源，金额存分，零外发（页面上没有任何一条请求会带账本数据）
-// 导入/导出格式与 App 的 JSON v5 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
+// 导入/导出格式与 App 的 JSON v8 对齐（app/lib/core/backup.dart），所以手机导出来的账本能直接贴进这里。
 import { GOODS_OTHER, goodsCategoryNames, goodsNorm } from './goods_lexicon.js';
 import { goodsCatPick } from './goods_detect.js';
+import { setRuntimeTaxonomy, builtinTaxonNames, KIND_EXPENSE } from './taxonomy.js';
+import { setActiveCategories, parseKeywords, categoryProblem } from './categories.js';
+import { CATEGORIES } from './lexicon.js';
 
 const KEY_TX = 'yhq.web.txs.v1';
 const KEY_META = 'yhq.web.meta.v1';
+// 分类与分类预算（v16-S48 网页版核心闭环）：一张表存三样，因为它们同生同死——
+// 停用了一张表里的名字、又留着它的预算，界面就会显示一格谁也选不到的预算。
+const KEY_TAX = 'yhq.web.tax.v1';
 
 // 备份是**外部输入**，来历只认这三个（与 backup.dart 的 _itemSrcs 同一张表）
 const ITEM_SRCS = new Set(['lexicon', 'learned', 'manual']);
@@ -37,6 +43,11 @@ function revive(raw) {
     type: raw.type,
     amountCents: raw.amountCents,
     category: raw.category,
+    // v19 二级（v16-S48 起网页版也认这一格）：缺键＝没记过，落成空串，不回填、不当「未细分」存。
+    subCategory: String(raw.subCategory ?? raw.sub_category ?? ''),
+    // 退款关联的原单行号：App 侧故意**不写进备份**（那是本机行号，换台手机同号不同账），
+    // 所以这一格只在同一台设备的账本里存在；读侧收下它是为了「同一份账在浏览器里刷新一次不丢失」。
+    refundOf: raw.refundOf ?? raw.refund_of ?? null,
     merchant: raw.merchant ?? '',
     raw: raw.raw ?? '',
     source: raw.source ?? 'manual',
@@ -163,23 +174,147 @@ export function clearTxs() {
   localStorage.removeItem(KEY_TX);
 }
 
+// —— 分类（自定义 + 停用）与分类预算：一张表、一次读写、启动时灌进运行时 ——
+// 🔴 运行时那两份（taxonomy 的树、categories 的生效表）只能从 applyRuntimeTax 这一个口子进：
+// 界面自己拼表＝开第二份算分类的口径，判类与选择器就会给出两个答案。
+export function loadTax() {
+  try {
+    const t = JSON.parse(localStorage.getItem(KEY_TAX) ?? '{}') ?? {};
+    const custom = (Array.isArray(t.custom) ? t.custom : [])
+      .filter((c) => c && typeof c.name === 'string' && c.name.trim() !== '')
+      .map((c) => ({
+        name: c.name.trim(),
+        emoji: typeof c.emoji === 'string' && c.emoji ? c.emoji : '🏷',
+        words: Array.isArray(c.words) ? c.words.filter((w) => typeof w === 'string' && w) : [],
+        kind: c.kind === 'income' || c.kind === 'refund' ? c.kind : KIND_EXPENSE,
+        parent: typeof c.parent === 'string' ? c.parent : '',
+      }));
+    const disabled = new Set((Array.isArray(t.disabled) ? t.disabled : []).filter((x) => typeof x === 'string'));
+    const catBudgets = {};
+    if (t.catBudgets && typeof t.catBudgets === 'object') {
+      for (const [k, v] of Object.entries(t.catBudgets)) {
+        const cents = Math.round(Number(v));
+        if (k && Number.isFinite(cents) && cents > 0) catBudgets[k] = cents;
+      }
+    }
+    return { custom, disabled, catBudgets };
+  } catch {
+    return { custom: [], disabled: new Set(), catBudgets: {} };
+  }
+}
+
+export function saveTax(patch = {}) {
+  const cur = loadTax();
+  const next = {
+    custom: patch.custom ?? cur.custom,
+    disabled: [...(patch.disabled ?? cur.disabled)],
+    catBudgets: patch.catBudgets ?? cur.catBudgets,
+  };
+  localStorage.setItem(KEY_TAX, JSON.stringify(next));
+  return applyRuntimeTax({
+    custom: next.custom,
+    disabled: new Set(next.disabled),
+    catBudgets: next.catBudgets,
+  });
+}
+
+/// 把盘上那一份灌进两个运行时表并原样返回（启动时也要跑一次，否则刷新后判类回到内置表）。
+export function applyRuntimeTax(tax) {
+  const custom = tax.custom ?? [];
+  const disabled = tax.disabled instanceof Set ? tax.disabled : new Set(disabledList(tax));
+  setRuntimeTaxonomy(custom.map((c) => ({ kind: c.kind, name: c.name, emoji: c.emoji, parent: c.parent ?? '', words: c.words ?? [] })));
+  setActiveCategories(
+    disabled,
+    custom.map((c) => ({ name: c.name, emoji: c.emoji, words: c.words ?? [] })),
+    Object.fromEntries(custom.map((c) => [c.name, c.kind ?? KIND_EXPENSE]))
+  );
+  return { custom, disabled, catBudgets: tax.catBudgets ?? {} };
+}
+
+function disabledList(tax) {
+  return Array.isArray(tax.disabled) ? tax.disabled : [];
+}
+
+/// 设一条分类预算：≤0 就是移除（与 App `setCategoryBudget` 同一口径——设 0 不是「拦在 0 元」）。
+export function setCategoryBudget(category, cents) {
+  const t = loadTax();
+  const budgets = { ...t.catBudgets };
+  const v = Math.round(Number(cents));
+  if (!Number.isFinite(v) || v <= 0) delete budgets[category];
+  else budgets[category] = v;
+  saveTax({ catBudgets: budgets });
+  return budgets;
+}
+
+/// 建一个自定义分类；名字不合法就返回那句原因，界面原样念给用户（不在界面上另判一遍）。
+/// 「重名」的名单是两张：内置平表 + 三棵树的内置节点名（二级名「电影演出」、收入名「年终奖」
+/// 都不在平表里，只查平表就会让用户建出一个永远显示不出来的格子——同 Dart 那条理由）。
+export function addCategory(tax, rawName, { emoji = '🏷', wordsRaw = '', kind = KIND_EXPENSE } = {}) {
+  const taken = new Set([
+    ...CATEGORIES.map((c) => c.name),
+    ...builtinTaxonNames(),
+    ...tax.custom.map((c) => c.name),
+  ]);
+  const problem = categoryProblem(rawName, taken, tax.custom.length);
+  if (problem) return { error: problem };
+  const name = rawName.trim();
+  const custom = [...tax.custom, { name, emoji, words: parseKeywords(wordsRaw), kind }];
+  return { custom, name };
+}
+
+/// 删一个自定义分类：先报「还有几笔挂在它上面、它们要去哪」，界面拿这句话做二次确认。
+export function removeCategory(tax, txs, name) {
+  const used = txs.filter((t) => t.category === name).length;
+  const kinds = [...new Set(txs.filter((t) => t.category === name).map((t) => t.type))];
+  return {
+    custom: tax.custom.filter((c) => c.name !== name),
+    catBudgets: Object.fromEntries(
+      Object.entries(tax.catBudgets).filter(([k]) => k !== name)
+    ),
+    used,
+    kinds,
+  };
+}
+
 // ---- 导出：与 App 的 buildJson / buildCsv 同格式 ----
-export function buildJson(txs, budgetCents) {
+export function buildJson(txs, budgetCents, tax = loadTax()) {
+  const custom = tax.custom ?? [];
+  const disabled = tax.disabled instanceof Set ? [...tax.disabled] : [];
+  const catBudgets = tax.catBudgets ?? {};
   return JSON.stringify(
     {
       app: '又花钱了',
       // v4（v0.14.0）：每条多了 item / goods_cat / item_src。
       // v5（v0.14.2）：多了 item_extra（docs/30 FR-4，一句里并列说到的其它物品）。
-      // 读侧一律按「缺字段＝没记」处理，所以这个号码只是**能力标注**，不是格式门禁。
-      // 网页版到这一版仍然不带 categories 段（它没有自定义分类能力），这一点与号码无关，
-      // 导入侧本来就按「没有这一段＝没停用过」处理。
-      version: 5,
+      // v8（v19 + v16-S48 网页版对齐）：多了 cat_budgets、categories（custom+disabled）、
+      // 每条多一个 sub_category。号码跟 App 那一份走（backup.dart 同一个数），
+      // 这样「手机导出→网页导入」和反方向贴得回去；读侧一律按「缺字段＝没记」处理。
+      version: 8,
       exported_at: localTime(new Date()),
       budget_cents: budgetCents,
+      // 空则不写键（同 App）：没有分类预算不该在文件里留一格 `{}`。
+      ...(Object.keys(catBudgets).length ? { cat_budgets: catBudgets } : {}),
+      ...(custom.length || disabled.length
+        ? {
+            categories: {
+              custom: custom.map((c) => ({
+                name: c.name,
+                icon: c.emoji,
+                words: c.words ?? [],
+                // 支出那一格不写键：它是老文件缺这一格时读侧的答案，写了就是把默认值当成他登记过的选择。
+                ...(c.kind && c.kind !== KIND_EXPENSE ? { kind: c.kind } : {}),
+              })),
+              disabled,
+            },
+          }
+        : {}),
       transactions: txs.map((t) => ({
         type: t.type,
         amount_cents: t.amountCents,
         category: t.category,
+        // 没记过二级就不写键（「没有」不是「空值」）；它跟着 category 走，
+        // 一级换了树、二级在另一棵树上没有那条路径，读回时那道归位会把它清掉。
+        ...(t.subCategory ? { sub_category: t.subCategory } : {}),
         merchant: t.merchant,
         raw: t.raw,
         source: t.source,
@@ -252,6 +387,9 @@ export function parseImportJson(text) {
       type,
       amountCents: cents,
       category: (e.category ?? '其他').trim() || '其他',
+      // 缺这一格就是「那笔没记过二级」，落成空串而不是猜一个；文件里带着陌生二级名也照收，
+      // 显示与统计那一侧由 subDim 裁决（落不进这棵树的就是「未细分」），不在读文件时改他的账。
+      subCategory: String(e.sub_category ?? e.subCategory ?? '').trim(),
       merchant: (e.merchant ?? '').trim(),
       raw: e.raw ?? '',
       source: e.source ?? 'import',
@@ -259,7 +397,45 @@ export function parseImportJson(text) {
       ...goodsFromBackup(e),
     });
   }
-  return { rows: out, skipped };
+  return { rows: out, skipped, ...categoriesFromBackup(data) };
+}
+
+/// 备份里的分类段与分类预算：外部输入，按 App 那侧同一套认法——
+/// custom 只认 name/icon(缺则默认图标)/words(数组或「，」分隔的串)/kind(缺则支出)、
+/// disabled 只认字符串数组、cat_budgets 只认正整数分。认不出来的整段当没有，不猜。
+function categoriesFromBackup(data) {
+  const out = { custom: null, disabled: null, catBudgets: null };
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return out;
+  const sec = data.categories;
+  if (sec && typeof sec === 'object') {
+    if (Array.isArray(sec.custom)) {
+      out.custom = sec.custom
+        .filter((c) => c && typeof c.name === 'string' && c.name.trim() !== '')
+        .map((c) => {
+          const words = Array.isArray(c.words)
+            ? c.words.filter((w) => typeof w === 'string' && w.trim() !== '').map((w) => w.trim())
+            : parseKeywords(String(c.words ?? ''));
+          return {
+            name: c.name.trim(),
+            emoji: typeof c.icon === 'string' && c.icon ? c.icon : '🏷',
+            words,
+            kind: c.kind === 'income' || c.kind === 'refund' ? c.kind : KIND_EXPENSE,
+          };
+        });
+    }
+    if (Array.isArray(sec.disabled)) {
+      out.disabled = sec.disabled.filter((x) => typeof x === 'string' && x.trim() !== '');
+    }
+  }
+  if (data.cat_budgets && typeof data.cat_budgets === 'object') {
+    const m = {};
+    for (const [k, v] of Object.entries(data.cat_budgets)) {
+      const cents = Math.round(Number(v));
+      if (k && Number.isFinite(cents) && cents > 0) m[k] = cents;
+    }
+    out.catBudgets = m;
+  }
+  return out;
 }
 
 export function importTxs(txs, rows) {
