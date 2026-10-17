@@ -278,7 +278,7 @@
       why.textContent = 'updates/version.json 这个地址回来的不是清单而是网页：这个宿主对不存在的路径回的是首页字节加一个好看的 200，所以不能当成「清单读到了」。整包与清单在 GitHub 那一侧。';
     } else if (e.missing) {
       head.textContent = '这个镜像里没有安装包';
-      why.textContent = '这个镜像只放网页版站点，没有 updates/ 这一份：Cloudflare Pages 的单个文件上限是 25 MiB，而安装包比它大，整包放不上去，所以连清单一起留在 GitHub 那侧。';
+      why.textContent = '这个镜像只放网页版站点，没有 updates/ 这一份：整包比 Cloudflare Pages 的单文件上限 25 MiB 还大，所以更新源整体留在 GitHub 那一侧，而不是每个镜像各存一份。';
     } else if (e.noapk) {
       head.textContent = '这份清单里没有安装包';
       why.textContent = 'updates/version.json 读到了，但里面没有 apk 那一段：这一份发布只登记了网页版，安装包没有跟着放上来。';

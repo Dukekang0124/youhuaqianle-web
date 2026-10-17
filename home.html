@@ -396,7 +396,7 @@
             : e.soft404
               ? 'updates/version.json 这个地址回来的不是清单而是网页：这个宿主对不存在的路径回首页字节加一个好看的 200，所以不能当成「清单读到了」。'
               : e.missing
-                ? '这个镜像没有 updates/：Cloudflare Pages 单文件上限 25 MiB，安装包比它大，所以整包与清单留在 GitHub 那一侧。去下载页看当前镜像地址。'
+                ? '这个镜像没有 updates/：整包比 Cloudflare Pages 的单文件上限 25 MiB 还大，所以更新源整体留在 GitHub 那一侧。去下载页看当前镜像地址。'
                 : e.noapk
                   ? '清单读到了，但里面没有 apk 那一段：这一份发布只登记了网页版，安装包没跟着放上来。'
                   : '没取到可用的 updates/version.json：可能是这个地址取不到它、回来的内容不是合法 JSON，也可能是你正双击打开本文件（浏览器不允许 fetch）。请通过线上地址访问。';
