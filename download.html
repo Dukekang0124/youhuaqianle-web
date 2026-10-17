@@ -120,6 +120,9 @@
   var here = new URL(location.href);
   var base = new URL('updates/', here);
   var btn = document.getElementById('dl');
+  // 探针回来后才能挂按钮，所以清单里那两段先存在这里，不在解析阶段直接写进 href
+  var apkInfo = null;
+  var apkHref = '';
 
   function bindCopy(btnId, textId, hintId) {
     var text = document.getElementById(textId).textContent;
@@ -132,9 +135,47 @@
     });
   }
 
+  // 清单读回来了不等于这个镜像真放着那个整包：Cloudflare Pages 对不存在的路径回的是首页字节＋200＋text/html，
+  // 不验就挂按钮，等于给用户一个改名叫 .apk 的网页。所以按钮只在探针说「总字节数与清单一致」时才连上包。
+  // 先用 HEAD 只问头部：它不带正文，不会因为宿主忽略 Range 就把整包吸进手机。
+  // HEAD 问不出结果（个别宿主不答 HEAD）才退一步问「只给一个字节」，并且不读正文。
+  function probePackage(url, want) {
+    function readLen(r) {
+      var cr = r.headers.get('content-range');
+      if (cr) return Number(String(cr).split('/').pop());
+      return Number(r.headers.get('content-length') || '-1');
+    }
+    function judge(r) {
+      var ct = String(r.headers.get('content-type') || '');
+      if (r.status === 404 || r.status === 403 || r.status === 410) return { verdict: 'missing', got: -1, ct: ct };
+      if (ct.indexOf('text/html') >= 0) return { verdict: 'soft404', got: -1, ct: ct };
+      if (String(r.headers.get('content-encoding') || 'identity') !== 'identity') return { verdict: 'unknown', got: -1, ct: ct };
+      var got = readLen(r);
+      if (!isFinite(got) || got < 0) return { verdict: 'unknown', got: -1, ct: ct };
+      return { verdict: got === want ? 'ok' : 'mismatch', got: got, ct: ct };
+    }
+    function byRange() {
+      return fetch(url, { method: 'GET', headers: { 'range': 'bytes=0-0' }, cache: 'no-store' })
+        .then(judge, function () { return { verdict: 'unknown', got: -1, ct: 'fetch-failed' }; });
+    }
+    return fetch(url, { method: 'HEAD', cache: 'no-store' })
+      .then(function (r) { var v = judge(r); return v.verdict === 'unknown' ? byRange() : v; }, byRange);
+  }
+
+  function armDownload(a, apkUrl) {
+    btn.href = apkUrl;
+    btn.textContent = '下载安卓安装包 v' + a.version;
+    var pill = document.getElementById('nav-dl');
+    pill.href = apkUrl;
+    pill.textContent = '下载 v' + a.version;
+  }
+
   fetch(new URL('version.json', base).href, { cache: 'no-store' })
     .then(function (r) {
       if (!r.ok) { var e = new Error('HTTP ' + r.status); e.missing = r.status === 404; throw e; }
+      // 回来的东西是不是清单，看 content-type 比看状态码准：soft-404 的状态码是好看的 200。
+      var ct = String(r.headers.get('content-type') || '');
+      if (ct.indexOf('text/html') >= 0) { var he = new Error('version.json 回来的是网页不是清单'); he.soft404 = true; throw he; }
       return r.json();
     })
     .then(function (j) {
@@ -142,8 +183,9 @@
       if (!a || !a.url) { var ne = new Error('version.json 里没有 apk 段'); ne.noapk = true; throw ne; }
       // 与客户端 resolveDownloadUrl 同一条规则：绝对地址原样用，光文件名就拼在当前 base 后面
       var apkUrl = /^https?:/i.test(a.url) ? a.url : new URL(a.url, base).href;
-      btn.href = apkUrl;
-      btn.textContent = '下载安卓安装包 v' + a.version;
+      apkInfo = a;
+      apkHref = apkUrl;
+      btn.textContent = '正在确认这个镜像放着这个包…';
       document.getElementById('ver').textContent = 'v' + a.version;
       document.getElementById('code').textContent = a.versionCode;
       document.getElementById('size').textContent = (a.size / 1048576).toFixed(1) + ' MB（' + a.size + ' 字节）';
@@ -155,10 +197,6 @@
         document.querySelector('#pkg details summary').textContent =
           '更新说明（清单里那一段：' + lines + ' 行 / ' + a.changelog.length + ' 字，这一格可以滚）';
       }
-      // 顶栏那颗「安装包」pill：拿到清单前它只是页内锚点，拿到之后就是包本身
-      var pill = document.getElementById('nav-dl');
-      pill.href = apkUrl;
-      pill.textContent = '下载 v' + a.version;
       if (j.web && j.web.version) {
         var p = document.getElementById('mirror');
         p.hidden = false;
@@ -168,11 +206,31 @@
       document.getElementById('base').textContent = base.href;
       document.getElementById('feed').hidden = false;
       bindCopy('copy-base', 'base', 'base-hint');
+      // 分块地址也按「这个镜像放不放」解析，所以整包探针不过时，分块这一格同样不能当承诺用
+      return probePackage(apkUrl, Number(a.size));
+    })
+    .then(function (v) {
+      if (!v) return;
+      var a = apkInfo;
+      if (v.verdict === 'ok') { armDownload(a, apkHref); return; }
+      if (v.verdict === 'unknown') {
+        armDownload(a, apkHref);
+        document.getElementById('err').textContent =
+          '按钮已经接上清单里那个地址，但这一趟没能核对总字节数（回来的是 ' + (v.ct || '未知类型') + '）——装完请让 App 自己校 MD5。';
+        return;
+      }
+      var ce = new Error(v.verdict === 'soft404' ? '这个镜像把不存在的地址兜底成了网页' : '这个镜像放着的不是清单里那一个整包');
+      ce.soft404 = v.verdict === 'soft404';
+      ce.mismatch = v.verdict === 'mismatch';
+      ce.got = v.got;
+      ce.probed = true;
+      throw ce;
     })
     .catch(function (e) {
+      e = e || {};
       btn.textContent = '本镜像没有安装包';
       btn.className = 'dl-btn ghost';
-      noapkCardShow(e || {});
+      noapkCardShow(e);
     });
 
   // 分块清单是「这一版发布带不带分块」的镜像：清单里没有就整卡不出现，
@@ -200,14 +258,25 @@
     document.getElementById('parts').hidden = false;
   }
 
-  // 走到这一支有三种完全不同的原因，界面必须说中是哪一种：
-  // 清单本身不在（404，Cloudflare 那侧的真实形态）、清单在但没登记安装包、清单取回来读不出内容。
-  // 把第二种写成「浏览器挡住 fetch」，是在给一个联网正常的人指一个不存在的原因。
+  // 走到这一支的原因不止一种，界面必须说中是哪一种：
+  // 清单本身不在（404）、清单回来的是网页（soft-404）、清单在但没登记安装包、
+  // 清单读到了但整包在这个镜像上不存在或字节数不对（探针判的）、清单取回来读不出内容。
+  // 把「这个镜像根本没放包」写成「浏览器挡住 fetch」，是在给一个联网正常的人指一个不存在的原因。
   function noapkCardShow(e) {
     var head = document.getElementById('noapk-head');
     var why = document.getElementById('noapk-why');
+    var err = document.getElementById('err');
     document.getElementById('noapk').hidden = false;
-    if (e.missing) {
+    if (e.soft404 && e.probed) {
+      head.textContent = '这个镜像把安装包兜底成了网页';
+      why.textContent = '清单里登记的那个包在这个镜像上取不到：这个地址回来的 content-type 是 text/html，也就是宿主把不存在的路径写成了首页。按钮不接，免得你下到一个改名叫 .apk 的网页。';
+    } else if (e.mismatch && e.probed) {
+      head.textContent = '这个地址放着的不是清单里那一个包';
+      why.textContent = '探针取到的总字节数是 ' + (e.got >= 0 ? e.got + ' B' : '未知') + '，清单里记的整包是 ' + (apkInfo ? apkInfo.size : '?') + ' B——两者不等就按没这个包处理。';
+    } else if (e.soft404) {
+      head.textContent = '这个镜像没有这份清单';
+      why.textContent = 'updates/version.json 这个地址回来的不是清单而是网页：这个宿主对不存在的路径回的是首页字节加一个好看的 200，所以不能当成「清单读到了」。整包与清单在 GitHub 那一侧。';
+    } else if (e.missing) {
       head.textContent = '这个镜像里没有安装包';
       why.textContent = '这个镜像只放网页版站点，没有 updates/ 这一份：Cloudflare Pages 的单个文件上限是 25 MiB，而安装包比它大，整包放不上去，所以连清单一起留在 GitHub 那侧。';
     } else if (e.noapk) {
@@ -219,7 +288,10 @@
     }
     document.getElementById('gh').textContent = 'https://' + GH_SITE + '/download.html';
     bindCopy('copy-gh', 'gh', 'gh-hint');
-    document.getElementById('err').textContent = '清单没读到，所以上面的版本、大小与 MD5 保持「—」——宁可不显示，也不显示一个猜出来的数。';
+    // 清单读到了才有的那一格：数字是真的，只有下载这件事不成立，不许把它写成「什么都没读到」
+    err.textContent = e.probed
+      ? '上面那些数字来自这个镜像真读到的清单，是真的；不成立的只有一件事：整包在这个镜像上取不到，所以按钮保持灰的。'
+      : '清单没读到，所以上面的版本、大小与 MD5 保持「—」——宁可不显示，也不显示一个猜出来的数。';
   }
 })();
 </script>

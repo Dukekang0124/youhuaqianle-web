@@ -286,6 +286,35 @@
     if (d) d.textContent = '下载 · ' + t;
   }
   function bindHref(url) { btns.forEach(function (b) { if (b) { b.href = url; b.setAttribute('download', ''); } }); }
+  function keepHrefToPage() { btns.forEach(function (b) { if (b) { b.href = 'download.html'; b.removeAttribute('download'); } }); }
+
+  // 与下载页同一条判据：清单读回来了不等于这个镜像真放着那个整包。
+  // Cloudflare 那侧对不存在的路径回首页字节＋200＋text/html，不验字节就把四个入口都指向它，
+  // 用户手机里就会存下一个改名叫 .apk 的网页——比「下不到」更坏。
+  var apkRef = null;
+  function probePackage(url, want) {
+    function readLen(r) {
+      var cr = r.headers.get('content-range');
+      if (cr) return Number(String(cr).split('/').pop());
+      return Number(r.headers.get('content-length') || '-1');
+    }
+    function judge(r) {
+      var ct = String(r.headers.get('content-type') || '');
+      if (r.status === 404 || r.status === 403 || r.status === 410) return { verdict: 'missing', got: -1, ct: ct };
+      if (ct.indexOf('text/html') >= 0) return { verdict: 'soft404', got: -1, ct: ct };
+      if (String(r.headers.get('content-encoding') || 'identity') !== 'identity') return { verdict: 'unknown', got: -1, ct: ct };
+      var got = readLen(r);
+      if (!isFinite(got) || got < 0) return { verdict: 'unknown', got: -1, ct: ct };
+      return { verdict: got === want ? 'ok' : 'mismatch', got: got, ct: ct };
+    }
+    function byRange() {
+      return fetch(url, { method: 'GET', headers: { 'range': 'bytes=0-0' }, cache: 'no-store' })
+        .then(judge, function () { return { verdict: 'unknown', got: -1, ct: 'fetch-failed' }; });
+    }
+    // HEAD 不带正文，不会因为宿主忽略 Range 就把整包吸进手机；问不出来才退一步只要一个字节
+    return fetch(url, { method: 'HEAD', cache: 'no-store' })
+      .then(function (r) { var v = judge(r); return v.verdict === 'unknown' ? byRange() : v; }, byRange);
+  }
 
   // 移动端底部常驻条：没有 IntersectionObserver 就常显（降级路径必须是「能用」，不是「更好看」）
   var dock = document.getElementById('dock');
@@ -302,6 +331,9 @@
   fetch(new URL('version.json', updates).href, { cache: 'no-store' })
     .then(function (r) {
       if (!r.ok) { var e = new Error('HTTP ' + r.status); e.missing = r.status === 404; throw e; }
+      // 状态码好看不足以说明读到的是清单：soft-404 就是 200 ＋首页
+      var ct = String(r.headers.get('content-type') || '');
+      if (ct.indexOf('text/html') >= 0) { var he = new Error('清单地址回来的是网页不是清单'); he.soft404 = true; throw he; }
       return r.json();
     })
     .then(function (j) {
@@ -309,18 +341,11 @@
       if (!a || !a.url) { var ne = new Error('清单里没有 apk 段'); ne.noapk = true; throw ne; }
       // 与客户端 resolveDownloadUrl 同一条规则：绝对地址原样用，光文件名拼在清单目录后面
       var url = /^https?:/i.test(a.url) ? a.url : new URL(a.url, updates).href;
-      bindHref(url);
+      apkRef = { a: a, url: url };
+      // 探针过之前，四处入口继续指向下载页：宁可让人多点一步，也不把一个可能不存在的包挂成下载
+      keepHrefToPage();
       var mb = (a.size / 1048576).toFixed(1);
-      setMainLabel('下载安卓安装包 v' + a.version + '（' + mb + ' MB）');
-      var nav = document.getElementById('nav-dl');
-      if (nav) {
-        // 体积那一截只在宽屏挂：窄屏上「· 49.2 MB」会把吸顶栏挤到换行，而大小在下载卡与信任条里都看得见
-        nav.textContent = '下载 APK';
-        var extra = document.createElement('span');
-        extra.className = 'pill-extra';
-        extra.textContent = ' · ' + mb + ' MB';
-        nav.append(extra);
-      }
+      setMainLabel('正在确认这个镜像放着这个包…');
       document.getElementById('g-ver').textContent = 'v' + a.version;
       document.getElementById('g-code').textContent = a.versionCode;
       document.getElementById('g-size').textContent = mb + ' MB（' + a.size + ' 字节）';
@@ -333,28 +358,67 @@
       if (tp) tp.innerHTML = '<b>安装包 ' + mb + ' MB</b><span>arm64 release 包，' + (pl.length ? '分 ' + pl.length + ' 块并发下载、逐块按清单的 SHA-256 复核' : '整包下载带断点续传') + '；App 装完自己校验 MD5。</span>';
       var why = document.getElementById('g-why');
       if (why) why.hidden = true;
+      return probePackage(url, Number(a.size));
+    })
+    .then(function (v) {
+      if (!v || !apkRef) return;
+      var a = apkRef.a;
+      if (v.verdict === 'ok') { bindHref(apkRef.url); setMainLabel('下载安卓安装包 v' + a.version + '（' + (a.size / 1048576).toFixed(1) + ' MB）'); decorateNav(); return; }
+      if (v.verdict === 'unknown') {
+        bindHref(apkRef.url);
+        setMainLabel('下载安卓安装包 v' + a.version + '（' + (a.size / 1048576).toFixed(1) + ' MB）');
+        decorateNav();
+        var uw = document.getElementById('g-why');
+        if (uw) { uw.hidden = false; uw.textContent = '入口已经接上清单里那个地址，但这一趟没能核对总字节数（回来的是 ' + (v.ct || '未知类型') + '）——装完请让 App 自己校 MD5。'; }
+        return;
+      }
+      var ce = new Error(v.verdict === 'soft404' ? '这个镜像把不存在的地址兜底成了网页' : '这个镜像放着的不是清单里那一个整包');
+      ce.soft404 = v.verdict === 'soft404';
+      ce.mismatch = v.verdict === 'mismatch';
+      ce.got = v.got;
+      ce.probed = true;
+      throw ce;
     })
     .catch(function (e) {
       e = e || {};
       setMainLabel('这个镜像没有安装包');
-      btns.forEach(function (b) { if (b) { b.href = 'download.html'; b.removeAttribute('download'); } });
-      var nav = document.getElementById('nav-dl');
-      if (nav) nav.textContent = '下载 APK';
+      keepHrefToPage();
       if (cards) cards.classList.add('no-js');
       var why = document.getElementById('g-why');
       if (why) {
         why.hidden = false;
-        // 三种原因三种文案。把「这个镜像根本没放包」写成「浏览器挡住了 fetch」，
-        // 是在给一个联网正常的人指一个不存在的原因——下载页那三分支同样是这个口径。
-        why.textContent = e.missing
-          ? '这个镜像没有 updates/：Cloudflare Pages 单文件上限 25 MiB，安装包比它大，所以整包与清单留在 GitHub 那一侧。去下载页看当前镜像地址。'
-          : e.noapk
-            ? '清单读到了，但里面没有 apk 那一段：这一份发布只登记了网页版，安装包没跟着放上来。'
-            : '没取到可用的 updates/version.json：可能是这个地址取不到它、回来的内容不是合法 JSON，也可能是你正双击打开本文件（浏览器不允许 fetch）。请通过线上地址访问。';
+        // 原因有几种就写几种。把「这个镜像根本没放包」写成「浏览器挡住 fetch」，
+        // 是在给一个联网正常的人指一个不存在的原因。
+        why.textContent = (e.soft404 && e.probed)
+          ? '清单里那个包在这个镜像上取不到：这个地址回来的是 text/html，也就是宿主把不存在的路径写成了首页。四个入口都改回指向下载页，免得你下到一个改名叫 .apk 的网页。'
+          : e.mismatch && e.probed
+            ? '探针取到的总字节数是 ' + (e.got >= 0 ? e.got + ' B' : '未知') + '，清单里记的是 ' + (apkRef ? apkRef.a.size : '?') + ' B——不等就按没这个包处理。'
+            : e.soft404
+              ? 'updates/version.json 这个地址回来的不是清单而是网页：这个宿主对不存在的路径回首页字节加一个好看的 200，所以不能当成「清单读到了」。'
+              : e.missing
+                ? '这个镜像没有 updates/：Cloudflare Pages 单文件上限 25 MiB，安装包比它大，所以整包与清单留在 GitHub 那一侧。去下载页看当前镜像地址。'
+                : e.noapk
+                  ? '清单读到了，但里面没有 apk 那一段：这一份发布只登记了网页版，安装包没跟着放上来。'
+                  : '没取到可用的 updates/version.json：可能是这个地址取不到它、回来的内容不是合法 JSON，也可能是你正双击打开本文件（浏览器不允许 fetch）。请通过线上地址访问。';
       }
       var tp = document.getElementById('trust-pkg');
-      if (tp) tp.innerHTML = '<b>安装包</b><span>没读到清单，所以大小与分块这里保持空白——宁可不显示，也不显示一个猜出来的数。</span>';
+      if (tp) tp.innerHTML = e.probed
+        ? '<b>安装包 ' + (apkRef ? (apkRef.a.size / 1048576).toFixed(1) : '—') + ' MB</b><span>这些数字来自这个镜像真读到的清单；不成立的只有一件事：整包在这个镜像上取不到，所以入口留在下载页。</span>'
+        : '<b>安装包</b><span>没读到清单，所以大小与分块这里保持空白——宁可不显示，也不显示一个猜出来的数。</span>';
     });
+
+  // 顶栏那颗 pill：体积那一截只在宽屏挂，窄屏上「· 49.2 MB」会把吸顶栏挤到换行
+  function decorateNav() {
+    var a = apkRef && apkRef.a;
+    if (!a) return;
+    var nav = document.getElementById('nav-dl');
+    if (!nav) return;
+    nav.textContent = '下载 APK';
+    var extra = document.createElement('span');
+    extra.className = 'pill-extra';
+    extra.textContent = ' · ' + (a.size / 1048576).toFixed(1) + ' MB';
+    nav.append(extra);
+  }
 })();
 </script>
 </body>
