@@ -10,21 +10,40 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="dl">
-<div class="shell dl-wrap">
+<div class="site-narrow">
 
-  <header class="topbar">
+  <nav class="site-nav">
     <div class="brand">
       <span class="mark">💸</span>
-      <span><b>又花钱了</b><i>下载</i></span>
+      <span><b>又花钱了</b><i>下载与安装</i></span>
     </div>
-    <div class="topright">
-      <a class="localchip" href="home.html">官网</a>
-      <a class="localchip" href="index.html">网页版</a>
+    <div class="site-links">
+      <a href="home.html">官网</a>
+      <a href="home.html#parity">双端对照</a>
+      <a href="privacy.html">隐私与数据</a>
     </div>
-  </header>
+    <div class="site-cta">
+      <a class="site-pill ghostv" href="index.html">网页版</a>
+      <a class="site-pill" id="nav-dl" href="#pkg">安装包</a>
+      <details class="site-menu">
+        <summary>目录</summary>
+        <div class="site-drop">
+          <a href="home.html">官网首页</a>
+          <a href="home.html#cap">能力</a>
+          <a href="home.html#parity">双端对照</a>
+          <a href="privacy.html">隐私与数据</a>
+          <a href="index.html">网页版</a>
+          <a href="#feed">备用更新地址</a>
+          <a href="#parts">分块清单</a>
+        </div>
+      </details>
+    </div>
+  </nav>
 
   <main>
-    <p class="dl-sub">语音记账 · 数据全在你手机里 · 安卓安装包</p>
+    <p class="dl-sub">语音记账 · 数据全在你手机里 · 安卓 arm64 安装包</p>
+    <h1 style="font-size:clamp(26px,5.4vw,34px);line-height:1.25;letter-spacing:-.02em;margin:14px 0 6px;font-weight:800">下载与安装</h1>
+    <p class="dl-note" style="margin-top:0">下面每一个数字都来自同一目录里的 <code>updates/version.json</code>：这一页不写死版本，也不写死包名。</p>
 
     <div class="card" id="pkg">
       <a id="dl" class="dl-btn primary">正在读取版本…</a>
@@ -38,11 +57,30 @@
       <p class="dl-note" id="mirror" hidden></p>
     </div>
 
+    <div class="card">
+      <h2 class="sechead">装到手机上（四步）</h2>
+      <ol class="dl-steps">
+        <li>点上面那颗按钮，安装包会存到手机的「下载」里。它是 <code>arm64</code> 架构的 release 包，近两年的手机基本都是这个架构。</li>
+        <li>第一次从浏览器装包，系统会问「是否允许安装未知来源应用」——只在「设置 → 应用 → 允许安装未知应用」里对<b>这一次</b>放行就行，装完可以关掉。</li>
+        <li>点开下载好的 apk，按提示安装。装完打开，账本从空开始；之前在网页版记过账的，用「我的 → 导入备份」把导出的 JSON 灌进来就接上了。</li>
+        <li>以后更新在 App 内完成：<b>设置 → 关于与更新</b>。它读的清单就是这一页读的同一份 <code>updates/version.json</code>。</li>
+      </ol>
+      <p class="dl-note">安装时如果提示「已损坏」或「解析软件包时出现问题」，先对照上面那两个校验值——字节数或 MD5 对不上，说明这一份在下载路上断了，重新下载即可，不是包本身坏了。</p>
+    </div>
+
     <div class="card" id="feed" hidden>
       <h2 class="sechead">把这行填进 App：设置 → 关于与更新 → 备用更新地址</h2>
       <pre id="base" class="dl-pre">—</pre>
       <button id="copy-base" class="ghost" type="button">复制这行</button>
       <p class="dl-note" id="base-hint">结尾那个斜杠必须留着：App 会在这行后面接 <code>version.json</code>。不要填 <code>…/version.json</code> 这种文件直链，那会变成 <code>version.json/version.json</code> 而 404。</p>
+    </div>
+
+    <div class="card" id="parts" hidden>
+      <h2 class="sechead">这一个包的分块清单</h2>
+      <p class="dl-p">同一个安装包切成几块放在 <code>updates/parts/</code> 下，每一块单独记了长度与 SHA-256。App 检测到这份清单就会<b>走分块下载</b>：一次大失败被切成几次小失败，坏哪块补哪块，最多重取一块而不是整包重下。</p>
+      <div class="dl-rows" id="parts-rows"></div>
+      <p class="dl-note" id="parts-sum">—</p>
+      <p class="dl-note">块地址是清单里的相对路径，按「<code>updates/</code> 这个目录 + 清单写的地址」解析——换托管不用重算哈希。逐块校验全部通过才允许整包拼回；任何一块长度或 SHA-256 与磁盘不符，发布脚本直接失败，宁可不发这份清单。</p>
     </div>
 
     <div class="card" id="noapk" hidden>
@@ -103,18 +141,30 @@
       var a = j && j.apk;
       if (!a || !a.url) { var ne = new Error('version.json 里没有 apk 段'); ne.noapk = true; throw ne; }
       // 与客户端 resolveDownloadUrl 同一条规则：绝对地址原样用，光文件名就拼在当前 base 后面
-      btn.href = /^https?:/i.test(a.url) ? a.url : new URL(a.url, base).href;
+      var apkUrl = /^https?:/i.test(a.url) ? a.url : new URL(a.url, base).href;
+      btn.href = apkUrl;
       btn.textContent = '下载安卓安装包 v' + a.version;
       document.getElementById('ver').textContent = 'v' + a.version;
       document.getElementById('code').textContent = a.versionCode;
       document.getElementById('size').textContent = (a.size / 1048576).toFixed(1) + ' MB（' + a.size + ' 字节）';
       document.getElementById('md5').textContent = a.md5;
       document.getElementById('log').textContent = a.changelog || '（这份 version.json 没带更新说明）';
+      // 标题里把这一段有多长说出来：它现在是 439 行量级的累计记录，展开后是一个滚动窗口而不是无限长页面
+      if (a.changelog) {
+        var lines = a.changelog.split('\n').length;
+        document.querySelector('#pkg details summary').textContent =
+          '更新说明（清单里那一段：' + lines + ' 行 / ' + a.changelog.length + ' 字，这一格可以滚）';
+      }
+      // 顶栏那颗「安装包」pill：拿到清单前它只是页内锚点，拿到之后就是包本身
+      var pill = document.getElementById('nav-dl');
+      pill.href = apkUrl;
+      pill.textContent = '下载 v' + a.version;
       if (j.web && j.web.version) {
         var p = document.getElementById('mirror');
         p.hidden = false;
         p.textContent = '同一份发布还带着网页版 v' + j.web.version + '（清单里记的网页版更新日期：' + (j.web.updated || '—' ) + '）';
       }
+      showParts(a);
       document.getElementById('base').textContent = base.href;
       document.getElementById('feed').hidden = false;
       bindCopy('copy-base', 'base', 'base-hint');
@@ -124,6 +174,31 @@
       btn.className = 'dl-btn ghost';
       noapkCardShow(e || {});
     });
+
+  // 分块清单是「这一版发布带不带分块」的镜像：清单里没有就整卡不出现，
+  // 而不是写一行「本版本无分块」——那等于把清单里根本没有的东西摆到用户面前。
+  function showParts(a) {
+    var pm = a.parts;
+    var list = pm && pm.parts;
+    if (!list || !list.length) return;
+    var box = document.getElementById('parts-rows');
+    list.forEach(function (p, i) {
+      var row = document.createElement('div');
+      row.className = 'dl-row';
+      var lab = document.createElement('span');
+      lab.textContent = '第 ' + (i + 1) + ' / ' + list.length + ' 块';
+      var val = document.createElement('small');
+      val.textContent = Number(p.size) + ' B · SHA-256 ' + String(p.sha256 || '—').slice(0, 12) + '…';
+      row.append(lab, val);
+      box.append(row);
+    });
+    var sum = list.reduce(function (acc, p) { return acc + Number(p.size || 0); }, 0);
+    var max = Number(pm.partMaxBytes || 0);
+    document.getElementById('parts-sum').textContent =
+      list.length + ' 块加起来 ' + sum + ' B' + (sum === Number(a.size) ? '，与上面整包字节数逐字节相等' : '，与上面整包字节数 ' + a.size + ' B 不相等——这属于清单坏了，请以下面「没读到」那一段为准') +
+      (max ? '；每块上限 ' + Math.round(max / 1048576) + ' MB' : '');
+    document.getElementById('parts').hidden = false;
+  }
 
   // 走到这一支有三种完全不同的原因，界面必须说中是哪一种：
   // 清单本身不在（404，Cloudflare 那侧的真实形态）、清单在但没登记安装包、清单取回来读不出内容。

@@ -42,11 +42,14 @@ jobs:
           store = open("js/store.js", encoding="utf-8").read()
           expect_ver = re.search(r"网页版 (v[0-9.]+)", app).group(1)
           expect_days = re.search(r"BACKUP_STALE_DAYS\s*=\s*(\d+)", store).group(1)
-          # home.html（官方网站落地页）与 download.html（下载页）也是站点的一部分：
+          # 站点页面（官网落地页 / 下载页 / 隐私页）与网页版的每个文件都是站点的一部分：
           # 它们在 web/dist 里有唯一真源，随站点一起上三条腿，所以巡检要逐文件回读它们（200 + MIME）。
-          # 这里刻意不校验它们的内容：这两页不写死任何版本号，把「某句话在不在」加进判据
+          # 这里刻意不校验页面内容：这几页不写死任何版本号，把「某句话在不在」加进判据
           # 就等于给改文案上一道必须同步的锁——那正是网页版页脚曾经漂过 11 版的那类账。
-          assets = ["index.html", "home.html", "download.html", "style.css"] + [
+          # 🔴 这一份名单与 tools/web-deploy.mjs 的 REQUIRED 必须逐名相等：
+          #    #543 撞的就是「页面进了站点、巡检不知道」——那时缺的是 home/download，
+          #    现在谁再加一页只改真源不改这里，同一类缺口就会再来一次。锁在 publish-check 的 F8。
+          assets = ["index.html", "home.html", "download.html", "privacy.html", "style.css"] + [
               "js/" + n for n in ["app.js", "cn.js", "lexicon.js", "money.js", "parser.js", "stats.js", "store.js"]
           ]
           OK_MIME = {"html": "text/html", "js": "javascript", "css": "text/css"}

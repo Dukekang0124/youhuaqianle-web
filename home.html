@@ -4,137 +4,358 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15151b">
-<meta name="description" content="又花钱了 · 官方网站：说一句记一笔，预算红绿灯，收入退款净口径。账本只存在你自己的设备里，服务器上没有你的数据。网页版免安装，安卓版可下载。">
-<title>又花钱了 · 官方网站</title>
+<meta name="description" content="又花钱了 · 官方网站：说一句记一笔，分类预算红绿灯，收入退款净口径，统计多维。账本只存在你自己的设备上，服务器上没有你的数据。可直接下载安卓安装包，也可免安装打开网页版。">
+<title>又花钱了 · 官方网站｜说一句，记一笔</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="hm">
-<div class="hm-wrap">
+<div class="site-wrap">
 
-  <header class="topbar hm-top">
+  <nav class="site-nav">
     <div class="brand">
       <span class="mark">💸</span>
       <span><b>又花钱了</b><i>官方网站</i></span>
     </div>
-    <a class="localchip" href="index.html">打开网页版</a>
+    <div class="site-links">
+      <a href="#cap">能力</a>
+      <a href="#shots">界面</a>
+      <a href="#parity">双端对照</a>
+      <a href="#privacy">隐私</a>
+      <a href="#faq">常见问题</a>
+    </div>
+    <div class="site-cta">
+      <a class="site-pill ghostv" href="index.html">网页版</a>
+      <a class="site-pill" id="nav-dl" href="download.html">下载 APK</a>
+      <details class="site-menu">
+        <summary>目录</summary>
+        <div class="site-drop">
+          <a href="#cap">能力</a>
+          <a href="#shots">界面</a>
+          <a href="#parity">双端对照</a>
+          <a href="#privacy">隐私</a>
+          <a href="#faq">常见问题</a>
+          <a href="download.html">下载与安装</a>
+          <a href="privacy.html">隐私与数据</a>
+        </div>
+      </details>
+    </div>
+  </nav>
+
+  <header class="site-hero">
+    <div>
+      <p class="site-eyebrow">本机记账 · 不联网也算</p>
+      <h1>说一句，记一笔。<br>钱花在哪，这台机器自己算给你看。</h1>
+      <p class="site-lede">语音或打字记一笔，一句话里几笔自动拆开；分类预算给到红绿灯，判的是退款抵扣之后的净口径；周期区间、跨年环比、分类榜与商户榜全部在你这台设备上算出来。没有账号，没有服务器上的你。</p>
+      <div class="site-btnrow">
+        <a class="site-btn primary" id="hero-dl" href="download.html">正在读取安装包…</a>
+        <a class="site-btn ghost" href="index.html">打开网页版 · 免安装</a>
+      </div>
+      <p class="site-heronote">按钮上的版本号、大小与校验值都从同目录 <code>updates/version.json</code> 现读——这一页的源码里一个版本号都不写，所以它不会在下一次发版之后开始说谎。看不到数字，就是这个镜像没有安装包，下面那段会说清是哪一种。</p>
+    </div>
+    <div class="site-shot" aria-hidden="true">
+      <div class="site-phone">
+        <div class="ph-head"><span>今日 · 十一月</span><span class="ph-lamp ok">还能花</span></div>
+        <div class="ph-big">¥ 86.50</div>
+        <div class="ph-head"><span>今天已花 · 净口径</span><span>日均还能花 ¥ 41.20</span></div>
+        <div class="ph-say">“中午星巴克拿铁三十二块，打车回家二十五块”</div>
+        <div class="ph-row"><span>餐饮 · 拿铁</span><b>¥ 32.00</b></div>
+        <div class="ph-row"><span>交通 · 打车</span><b>¥ 25.00</b></div>
+        <div class="ph-head"><span>餐饮预算</span><span>62%</span></div>
+        <div class="ph-track"><div class="ph-fill" style="width:62%"></div></div>
+      </div>
+      <p class="site-shot-cap">界面示意，非截图</p>
+    </div>
   </header>
+
+  <section class="site-trust" aria-label="四条硬事实">
+    <div class="t"><b>账本在你设备里</b><span>网页版写本机浏览器存储，App 写本机数据库；站点是纯静态文件，没有存你账本的服务器。</span></div>
+    <div class="t"><b>零第三方请求</b><span>这一页和网页版都不引外部字体、CDN、图片与统计脚本；发布前有脚本逐条拦外链写法，不合规就不出包。</span></div>
+    <div class="t"><b>免注册 · 无广告</b><span>没有账号体系，没有付费点，也没有可以放广告的位置——页面里没有任何第三方请求。</span></div>
+    <div class="t" id="trust-pkg"><b>安装包</b><span>正在从清单读取大小与分块数…</span></div>
+  </section>
 
   <main>
 
-    <section class="hm-hero">
-      <h1>说一句，记一笔。<br>钱花在哪，这台机器自己算给你看。</h1>
-      <p class="hm-lede">语音或打字记账 · 分类预算与红绿灯 · 收入退款净口径 · 统计多维。你的账本只存在你自己的设备里，服务器上没有你的数据。</p>
-      <div class="hm-cta">
-        <a class="hm-btn primary" href="index.html">打开网页版 · 免安装</a>
-        <a class="hm-btn ghost" href="download.html">下载安卓版</a>
+  <section class="site-sec" id="cap">
+    <h2 class="site-h2">它替你解决的是三件事，不是三张表</h2>
+    <p class="site-kicker">记下来 · 看得出还剩多少 · 知道钱去了哪</p>
+    <div class="site-cards cols-3">
+      <div class="card site-card">
+        <h3>说一句，几笔一起记</h3>
+        <p>「中午星巴克拿铁三十二块，打车回家二十五块」——一句话拆成两张确认卡，金额、分类、商户一次带出。没听清金额就先成卡、再补金额，不会把你的话丢掉。</p>
       </div>
-      <p class="hm-note">网页版不需要注册、不需要登录，打开就能记。安装包的大小、版本号与更新说明都在下载页从清单现读，这一页不写死任何一版。</p>
-    </section>
-
-    <section class="hm-block">
-      <h2 class="sechead">它替你解决哪三件事</h2>
-      <div class="hm-grid">
-        <div class="card">
-          <p class="big">说一句，几笔一起记</p>
-          <p class="hm-p">「中午星巴克拿铁三十二块，打车回家二十五块」——一句话拆成两张确认卡，金额、分类、商户一次带出。没听清金额就先成卡、再补金额，不会把你的话丢掉。</p>
-        </div>
-        <div class="card">
-          <p class="big">这个月还能花多少</p>
-          <p class="hm-p">给分类设预算，用到 80% 转黄、超 100% 转红，同时告诉你「还剩多少」和「日均还能花」。红绿灯判的是净口径：退款抵扣之后的钱。</p>
-        </div>
-        <div class="card">
-          <p class="big">钱到底去哪了</p>
-          <p class="hm-p">周期区间、跨年环比、净口径分类榜、商户榜（退款自动抵扣），全部在你这台设备上算出来。不是「建议你怎么活」，是「你这个月实际花在哪」。</p>
-        </div>
+      <div class="card site-card">
+        <h3>这个月还能花多少</h3>
+        <p>给分类设月度预算，用到八成转黄、超了转红，同时告诉你「还剩多少」和「日均还能花」。红绿灯判的是净口径：退款抵扣之后的钱，不是流水总额。</p>
       </div>
-    </section>
-
-    <section class="hm-block">
-      <h2 class="sechead">隐私不是承诺，是这几条能验证的事实</h2>
-      <ul class="hm-list">
-        <li><b>没有存你账本的服务器。</b>站点是纯静态文件，网页版把账本写在你自己浏览器的本机存储里，App 写在你手机的本机数据库里。</li>
-        <li><b>没有账号，不做云同步。</b>换设备只能靠你自己导出 JSON／CSV 再导入——格式与安卓版互通，搬运的主动权在你手上。</li>
-        <li><b>零外链、零埋点。</b>这一页和网页版里没有任何第三方请求，连一个统计脚本都没有；发布前有脚本逐条拦截外链写法与绝对路径，写法不合规就不出包。</li>
-        <li><b>语音默认关。</b>网页版的语音输入用的是浏览器自带的识别服务，开启就意味着这句话会交给浏览器的语音识别处理；不点麦克风，一个字都不听。</li>
-      </ul>
-      <p class="hm-note">「数据全在本机」是本产品从安卓版延续下来的硬口径：金额的判定、分类的口径、周期与阈值、红绿灯档位，全部是确定性代码在设备上算出来的，没有任何一步依赖我们的服务端。</p>
-    </section>
-
-    <section class="hm-block">
-      <h2 class="sechead">网页版现在能做什么（与安卓版对照）</h2>
-      <div class="hm-table" role="table">
-        <div class="hm-tr hm-th" role="row"><span role="columnheader">能力</span><span role="columnheader">安卓版</span><span role="columnheader">网页版</span></div>
-        <div class="hm-tr" role="row"><span role="cell">说一句话记账，多笔自动拆分</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">确认卡 · 编辑 · 删除后撤销</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">分类预算与今日红绿灯（净口径）</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">收入与退款 · 净支出与净口径榜单</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">统计：周期区间、跨年环比、分类榜、商户榜</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">明细搜索与分类筛选</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">记账连胜与备份保鲜提醒</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr" role="row"><span role="cell">导出 JSON／CSV，与对方导入互通</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr hm-only" role="row"><span role="cell">AI 归类兜底、洞察润色、智能问账</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
-        <div class="hm-tr hm-only" role="row"><span role="cell">端侧离线语音模型（不联网也能识别）</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
-        <div class="hm-tr" role="row"><span role="cell">自定义分类、二级多选筛选</span><span role="cell">✓</span><span role="cell">✓</span></div>
-        <div class="hm-tr hm-only" role="row"><span role="cell">负债与房贷／车贷测算、净资产快照</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
-        <div class="hm-tr hm-only" role="row"><span role="cell">储蓄目标、信封预算（收入分配那一页）、成就与预警、洞察中心、教练台</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
-        <div class="hm-tr hm-only" role="row"><span role="cell">本地通知提醒、每日自动备份、应用锁、桌面小组件</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
+      <div class="card site-card">
+        <h3>钱到底去哪了</h3>
+        <p>周期区间、跨年环比、净口径分类榜、商户榜（退款自动抵扣），全部在你这台设备上算出来。它不教你怎么活，只把这个月你实际花在哪摆出来。</p>
       </div>
-      <p class="hm-note">这一张表只写「已经实现的能力」。网页版是纯静态的第二运行时：需要装模型、需要后台服务、需要系统通知的能力它做不到，所以我们不在官网上提前承诺。</p>
-    </section>
+    </div>
 
-    <section class="hm-block">
-      <h2 class="sechead">网页版和安卓版会算出不一样的钱吗</h2>
-      <p class="hm-p">不应当。两边跑的是同一套判定逻辑，只是一个是 Dart、一个是 ES Module。每次发布前有一个脚本做三件事：把同一批黄金样例（含多笔连说、纯品牌词、中文数字与「万／w」这类金额写法）在两边各跑一遍并逐条比对；把分类词表与品牌词表逐字对照 Dart 真源；把统计口径（周期区间、跨年环比、净口径、退款抵扣、红绿灯档位、连胜宽限天）在 JS 侧复述一遍。任何一词之差，脚本变红，这一版就发不出去。</p>
-      <p class="hm-p">所以如果哪天两边算得不一样，那是缺陷，不是「网页版和 App 本来就有差异」。发现了请告诉我，判据会补进那个脚本里。</p>
-    </section>
+    <div class="site-steps" style="margin-top:14px">
+      <div class="site-step">
+        <h3>按住说，或者打一行字</h3>
+        <p>安卓版自带端侧离线语音模型，不联网也能识别；网页版用浏览器自带的识别服务，默认关着，不点麦克风一个字都不听。</p>
+      </div>
+      <div class="site-step">
+        <h3>先看确认卡，再决定记不记</h3>
+        <p>拆成几笔、每笔多少钱、归哪类、哪家商户，全部摊在卡上让你改。<code>记一笔</code> 之前它不会自己写进账本。</p>
+      </div>
+      <div class="site-step">
+        <h3>记错了当场撤销</h3>
+        <p>落账后给一条撤销；删账、改账都有历史。预算与红绿灯立刻重算，不用你手动对齐。</p>
+      </div>
+    </div>
 
-    <section class="hm-block">
-      <h2 class="sechead">常见问题</h2>
+    <div class="site-cards cols-4" style="margin-top:14px">
+      <div class="card site-card"><h3>多笔拆分</h3><p>一句话里的几笔各自成账；商户在整句里共享，但金额与物品逐个绑定，不会串到下一笔。</p></div>
+      <div class="card site-card"><h3>收入与退款</h3><p>收入、退款、净支出三条口径分开算；榜单按净额排，退款自动抵扣到原商户。</p></div>
+      <div class="card site-card"><h3>统计多维</h3><p>自定义区间、跨年环比、分类与商户榜、消费热力；跨设备也能只看一台设备上算得出的数。</p></div>
+      <div class="card site-card"><h3>分类你自己定</h3><p>自定义分类、二级节点、明细页二级多选筛选；判类按支出／收入分开，不混用一棵树。</p></div>
+      <div class="card site-card"><h3>导出导入互通</h3><p>JSON 与 CSV 两份导出，网页版导出的账可以原样导进安卓版，反之亦然。搬运的主动权在你手里。</p></div>
+      <div class="card site-card"><h3>下载不整包重下</h3><p>安卓更新走分块并发：一次大失败切成几次小失败，坏哪块补哪块，每块按清单的 SHA-256 复核。</p></div>
+      <div class="card site-card"><h3>提醒与自动化</h3><p>超支前本地提醒、每日简报、备份保鲜、应用锁与桌面小组件；这些需要系统能力，只在安卓版里。</p></div>
+      <div class="card site-card"><h3>双端同口径</h3><p>判定逻辑一份 Dart、一份 ES Module，每次发布前用同一批黄金样例两边逐条比对，一词之差这一版发不出去。</p></div>
+    </div>
+  </section>
+
+  <section class="site-sec" id="shots">
+    <h2 class="site-h2">界面长这样</h2>
+    <p class="site-kicker">以下三块是按真实界面画的示意，不是截图——不想让你拿示意图去核对像素。</p>
+    <div class="site-shots">
+      <div class="site-shot">
+        <div class="site-phone" aria-hidden="true">
+          <div class="ph-head"><span>今日</span><span class="ph-lamp warn">接近上限</span></div>
+          <div class="ph-big">¥ 214.00</div>
+          <div class="ph-head"><span>餐饮预算已用</span><span>86%</span></div>
+          <div class="ph-track"><div class="ph-fill" style="width:86%"></div></div>
+          <div class="ph-row"><span>交通</span><b>72%</b></div>
+          <div class="ph-row"><span>娱乐</span><b>31%</b></div>
+        </div>
+        <p class="site-shot-cap">今日页 · 红绿灯与还能花多少（示意）</p>
+      </div>
+      <div class="site-shot">
+        <div class="site-phone" aria-hidden="true">
+          <div class="ph-head"><span>确认卡 · 2 笔</span><span>按住可改</span></div>
+          <div class="ph-say">“星巴克拿铁三十二，打车二十五”</div>
+          <div class="ph-row"><span>餐饮 · 拿铁</span><b>¥ 32.00</b></div>
+          <div class="ph-row"><span>交通 · 打车</span><b>¥ 25.00</b></div>
+          <div class="ph-head"><span>缺金额？先成卡再补</span><span>不丢话</span></div>
+        </div>
+        <p class="site-shot-cap">确认卡 · 记之前每一格都能改（示意）</p>
+      </div>
+      <div class="site-shot">
+        <div class="site-phone" aria-hidden="true">
+          <div class="ph-head"><span>本月 · 净口径分类榜</span><span>共 ¥ 3,482</span></div>
+          <div class="ph-row"><span>餐饮</span><b>¥ 1,240</b></div>
+          <div class="ph-track"><div class="ph-fill" style="width:36%"></div></div>
+          <div class="ph-row"><span>交通</span><b>¥ 640</b></div>
+          <div class="ph-track"><div class="ph-fill" style="width:18%"></div></div>
+          <div class="ph-row"><span>退款抵扣后 · 购物</span><b>¥ 402</b></div>
+          <div class="ph-track"><div class="ph-fill" style="width:12%"></div></div>
+        </div>
+        <p class="site-shot-cap">统计页 · 退款抵到净额再排（示意）</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-sec" id="parity">
+    <h2 class="site-h2">网页版现在能做什么（与安卓版对照）</h2>
+    <p class="site-kicker">这张表只写已经实现的能力。做不到的写在右边那一列，不提前承诺。</p>
+    <div class="hm-table" role="table">
+      <div class="hm-tr hm-th" role="row"><span role="columnheader">能力</span><span role="columnheader">安卓版</span><span role="columnheader">网页版</span></div>
+      <div class="hm-tr" role="row"><span role="cell">说一句话记账，多笔自动拆分</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">确认卡 · 编辑 · 删除后撤销</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">分类预算与今日红绿灯（净口径）</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">收入与退款 · 净支出与净口径榜单</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">统计：周期区间、跨年环比、分类榜、商户榜</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">明细搜索与分类、二级多选筛选</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">自定义分类</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">记账连胜与备份保鲜提醒</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr" role="row"><span role="cell">导出 JSON／CSV，与对方导入互通</span><span role="cell">✓</span><span role="cell">✓</span></div>
+      <div class="hm-tr hm-only" role="row"><span role="cell">端侧离线语音模型（不联网也能识别）</span><span role="cell">✓</span><span role="cell">用浏览器自带的识别服务，需联网且默认关</span></div>
+      <div class="hm-tr hm-only" role="row"><span role="cell">AI 归类兜底、洞察润色、智能问账</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
+      <div class="hm-tr hm-only" role="row"><span role="cell">负债与房贷／车贷测算、净资产快照、储蓄目标</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
+      <div class="hm-tr hm-only" role="row"><span role="cell">成就与预警、洞察中心、消费决策与教练台</span><span role="cell">✓</span><span role="cell">目前只在安卓版</span></div>
+      <div class="hm-tr hm-only" role="row"><span role="cell">本地通知提醒、每日自动备份、应用锁、桌面小组件</span><span role="cell">✓</span><span role="cell">需要系统能力，浏览器里做不到</span></div>
+    </div>
+    <h2 class="site-h2" style="margin-top:34px">网页版和安卓版会算出不一样的钱吗</h2>
+    <p class="hm-p">不应当。两边跑同一套判定逻辑，只是一个 Dart、一个 ES Module。发布前有一个脚本做三件事：把同一批黄金样例（含多笔连说、纯品牌词、中文数字与「万／w」这类金额写法）在两边各跑一遍逐条比对；把分类词表与品牌词表逐字对照 Dart 真源；把统计口径（周期区间、跨年环比、净口径、退款抵扣、红绿灯档位、连胜宽限天）在 JS 侧复述一遍。任何一词之差就变红，这一版发不出去。</p>
+    <p class="hm-p">所以如果哪天两边算得不一样，那是缺陷，不是「网页版和 App 本来就有差异」。发现了告诉我们，判据会补进那个脚本里。</p>
+  </section>
+
+  <section class="site-sec" id="privacy">
+    <h2 class="site-h2">隐私不是承诺，是几条能验证的事实</h2>
+    <ul class="hm-list">
+      <li><b>没有存你账本的服务器。</b>站点是纯静态文件；网页版把账本写在你自己浏览器的本机存储里，App 写在你手机的本机数据库里。</li>
+      <li><b>没有账号，不做云同步。</b>换设备只能靠你自己导出 JSON／CSV 再导入——格式与安卓版互通。</li>
+      <li><b>零外链、零埋点。</b>这一页没有任何第三方请求，连一个统计脚本都没有；发布前脚本逐条拦外链写法与绝对路径。</li>
+      <li><b>语音默认关。</b>网页版的语音输入用的是浏览器自带的识别服务，开启就意味着这句话交给浏览器的语音识别处理；不点麦克风，一个字都不听。</li>
+    </ul>
+    <p class="hm-note">完整一条一条写在 <a href="privacy.html" style="color:var(--gold)">隐私与数据</a> 那一页：哪些数据落在哪、为什么网页版的数据会丢、备份怎么办、我们看不到什么。</p>
+  </section>
+
+  <section class="site-sec" id="get">
+    <h2 class="site-h2">下载与安装</h2>
+    <p class="site-kicker">安装包与更新清单在同一个仓库里：推一次就是站点、清单、整包、分块同时上线。</p>
+    <div class="site-get">
+      <a class="site-btn primary" id="get-dl" href="download.html">正在读取安装包…</a>
+      <dl class="dl-dl">
+        <dt>版本</dt><dd id="g-ver">—</dd>
+        <dt>Build</dt><dd id="g-code">—</dd>
+        <dt>大小</dt><dd id="g-size">—</dd>
+        <dt>MD5</dt><dd id="g-md5" class="site-hash">—</dd>
+        <dt>分块</dt><dd id="g-parts">—</dd>
+      </dl>
+      <p class="site-more">装不上、只有安卓八倍以上、想核对文件是不是这一版、或者想把备用更新地址填进 App——都在 <a href="download.html">下载与安装</a> 那一页写清了。</p>
+      <noscript><p class="site-more get-fallback" style="display:block">禁用脚本时这一卡不显示数字：请打开 <a href="updates/version.json">updates/version.json</a>，里面 <code>apk.url</code> 写的那个文件名就是当前这一个安装包，它就在 <code>updates/</code> 这个目录里。这里刻意不写死文件名。</p></noscript>
+      <p class="site-more" id="g-why" hidden></p>
+    </div>
+  </section>
+
+  <section class="site-sec" id="faq">
+    <h2 class="site-h2">常见问题</h2>
+    <div class="site-faq">
       <details class="hm-faq">
-        <summary>网页版的数据会丢吗？</summary>
-        <p class="hm-p">会。它存在这台浏览器的本机存储里，清理缓存、换浏览器、换设备都会拿不回来——这正是「服务器上没有你的数据」的代价。所以今日页底部有一条保鲜提醒：隔了 7 天没导出就会提醒你把账本留一份。导出的 JSON 或「复制备份内容」粘进聊天里，都算存住了，之后可以原样导回来。</p>
+        <summary>装了提示「不允许安装未知来源应用」怎么办？</summary>
+        <p class="hm-p">在系统提示里允许这一次安装即可（安卓对非应用商店分发的包的固定流程）。包只有 arm64 的 release 构建：老机型或 x86 模拟器装不上，那不是包坏了。当前发布用的是调试证书，装的时候系统可能提示来源不受信任——这一条我们不假装是正式商店签名。</p>
       </details>
       <details class="hm-faq">
-        <summary>在微信里点链接打不开怎么办？</summary>
-        <p class="hm-p">微信内置浏览器会拦它不认识的域名。把链接复制到手机自带浏览器（或 Safari）里打开就行；网页版没有登录态，任何设备任何浏览器打开都是同一个入口，只是各自的账本互不相通。</p>
+        <summary>网页版的数据会丢吗？</summary>
+        <p class="hm-p">会。它存在这台浏览器的本机存储里，清理缓存、换浏览器、换设备都会拿不回来——这正是「服务器上没有你的数据」的代价。所以今日页有一条保鲜提醒：隔了 7 天没导出就提醒你把账本留一份。导出的 JSON，或「复制备份内容」粘进聊天收藏，都算存住了，之后能原样导回来。</p>
       </details>
       <details class="hm-faq">
         <summary>要收费吗？有广告吗？</summary>
         <p class="hm-p">没有账号体系，没有付费点；页面里没有任何第三方请求，因此也不存在广告位与埋点。</p>
       </details>
       <details class="hm-faq">
-        <summary>为什么不把网页版做成和 App 一样全？</summary>
-        <p class="hm-p">因为「全」要靠后端或靠装东西：AI 归类要调用模型，离线语音要下载几百 MB 的模型，提醒要系统通知，自动备份要后台服务。这些放进浏览器里的静态页面，就等于把「账本不出你的设备」这条口径破掉。所以网页版只做本机确定性代码能做到的那部分，其余的如实写在上面那张表里。</p>
+        <summary>为什么不把网页版做得和 App 一样全？</summary>
+        <p class="hm-p">因为「全」要靠后端或靠装东西：AI 归类要调用模型，离线语音要下载几百 MB 的模型，提醒要系统通知，自动备份要后台服务。这些塞进浏览器里的静态页面，就等于把「账本不出你的设备」这条口径破掉。所以网页版只做本机确定性代码能做到的部分，其余如实写在上面那张表里。</p>
+      </details>
+      <details class="hm-faq">
+        <summary>在微信里点链接打不开怎么办？</summary>
+        <p class="hm-p">微信内置浏览器会拦它不认识的域名。把链接复制到手机自带浏览器（或 Safari）里打开就行；网页版没有登录态，任何设备任何浏览器打开都是同一个入口，只是各自的账本互不相通。</p>
       </details>
       <details class="hm-faq">
         <summary>以后怎么知道出了新版本？</summary>
-        <p class="hm-p">网页版没有「要更新」这个状态：站点换了新版本，你下次刷新拿到的就是新的，不需要装包、不会掉数据。安卓版的更新在 App 内完成（设置 → 关于与更新），下载页显示的就是当前那一版。</p>
+        <p class="hm-p">网页版没有「要更新」这个状态：站点换了新版本，你下次刷新拿到的就是新的，不用装包、不会掉数据。安卓版的更新在 App 内完成（设置 → 关于与更新），本卡片与下载页显示的就是当前这一版——数字来自清单文件，我们不在页面上抄一遍。</p>
       </details>
-    </section>
+    </div>
+  </section>
 
-    <section class="hm-block">
-      <h2 class="sechead">怎么开始</h2>
-      <ol class="hm-steps">
-        <li>点上面的「打开网页版」，直接说一句话或打字，先记一笔。</li>
-        <li>在「我的」里给常用分类填月度预算，今日页的红绿灯就会开始工作。</li>
-        <li>顺手导出一份 JSON 存进聊天收藏——这是你这本账唯一的第二份。</li>
-        <li>想长期用、想要提醒和智能归类，就下载安卓版；网页版导出的账可以原样导进去。</li>
-      </ol>
-      <div class="hm-cta">
-        <a class="hm-btn primary" href="index.html">打开网页版</a>
-        <a class="hm-btn ghost" href="download.html">下载安卓版</a>
-      </div>
-    </section>
+  <section class="site-sec">
+    <div class="site-btnrow">
+      <a class="site-btn primary" href="#get">回到下载</a>
+      <a class="site-btn ghost" href="index.html">先试网页版</a>
+    </div>
+  </section>
 
   </main>
 
-  <footer class="hm-foot">
-    <p>又花钱了 · 本机确定性代码，账本不出你的设备。</p>
-    <p class="hm-footsub">网页版与安卓版的一致性由发布脚本逐条核对；版本号只在各自页面里现读，这一页不抄写版本号。</p>
-    <p><a href="index.html">网页版</a> · <a href="download.html">下载与更新说明</a></p>
+  <footer class="site-foot">
+    <p class="fcopy">又花钱了 · 本机确定性代码，账本不出你的设备。</p>
+    <p class="flinks"><a href="home.html">官网</a><a href="index.html">网页版</a><a href="download.html">下载与安装</a><a href="privacy.html">隐私与数据</a></p>
+    <p class="fsub">网页版与安卓版的一致性由发布脚本逐条核对；版本号、包大小与校验值只在各自页面里现读，本站任何一页都不写死任何一版。这一页不请求任何第三方地址。</p>
   </footer>
 
 </div>
+
+<nav class="site-dock" id="dock" hidden>
+  <a class="dock-main" id="dock-dl" href="download.html">下载安卓安装包</a>
+  <a class="dock-alt" href="index.html">网页版</a>
+</nav>
+
+<script>
+(function () {
+  // 与 download.html 同一条规则：清单地址按「本页所在目录」解析，
+  // 所以站点挂在子路径（Pages 项目站）、挂在根（Cloudflare）、本地预览三种情形都拼得对，
+  // 而且一次对外请求都不产生。
+  var updates = new URL('updates/', location.href);
+  var cards = document.querySelector('.site-get');
+  var btns = ['hero-dl', 'get-dl', 'nav-dl', 'dock-dl'].map(function (id) { return document.getElementById(id); });
+
+  function setMainLabel(t) {
+    var h = document.getElementById('hero-dl');
+    var g = document.getElementById('get-dl');
+    var d = document.getElementById('dock-dl');
+    if (h) h.textContent = t;
+    if (g) g.textContent = t;
+    if (d) d.textContent = '下载 · ' + t;
+  }
+  function bindHref(url) { btns.forEach(function (b) { if (b) { b.href = url; b.setAttribute('download', ''); } }); }
+
+  // 移动端底部常驻条：没有 IntersectionObserver 就常显（降级路径必须是「能用」，不是「更好看」）
+  var dock = document.getElementById('dock');
+  if (dock) {
+    var show = function () { document.body.classList.add('site-dockable'); dock.hidden = false; };
+    var hero = document.querySelector('.site-hero');
+    if (hero && 'IntersectionObserver' in window) {
+      new IntersectionObserver(function (es) {
+        es.forEach(function (e) { if (!e.isIntersecting) show(); });
+      }, { threshold: 0 }).observe(hero);
+    } else { show(); }
+  }
+
+  fetch(new URL('version.json', updates).href, { cache: 'no-store' })
+    .then(function (r) {
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.missing = r.status === 404; throw e; }
+      return r.json();
+    })
+    .then(function (j) {
+      var a = j && j.apk;
+      if (!a || !a.url) { var ne = new Error('清单里没有 apk 段'); ne.noapk = true; throw ne; }
+      // 与客户端 resolveDownloadUrl 同一条规则：绝对地址原样用，光文件名拼在清单目录后面
+      var url = /^https?:/i.test(a.url) ? a.url : new URL(a.url, updates).href;
+      bindHref(url);
+      var mb = (a.size / 1048576).toFixed(1);
+      setMainLabel('下载安卓安装包 v' + a.version + '（' + mb + ' MB）');
+      var nav = document.getElementById('nav-dl');
+      if (nav) {
+        // 体积那一截只在宽屏挂：窄屏上「· 49.2 MB」会把吸顶栏挤到换行，而大小在下载卡与信任条里都看得见
+        nav.textContent = '下载 APK';
+        var extra = document.createElement('span');
+        extra.className = 'pill-extra';
+        extra.textContent = ' · ' + mb + ' MB';
+        nav.append(extra);
+      }
+      document.getElementById('g-ver').textContent = 'v' + a.version;
+      document.getElementById('g-code').textContent = a.versionCode;
+      document.getElementById('g-size').textContent = mb + ' MB（' + a.size + ' 字节）';
+      document.getElementById('g-md5').textContent = a.md5;
+      var pl = (a.parts && a.parts.parts) || [];
+      document.getElementById('g-parts').textContent = pl.length
+        ? pl.length + ' 块 · 每块 ≤ ' + Math.round((a.parts.partMaxBytes || 0) / 1048576) + ' MB · 逐块记 SHA-256'
+        : '这份清单没带分块：App 会整包单流下载，同样带断点续传';
+      var tp = document.getElementById('trust-pkg');
+      if (tp) tp.innerHTML = '<b>安装包 ' + mb + ' MB</b><span>arm64 release 包，' + (pl.length ? '分 ' + pl.length + ' 块并发下载、逐块按清单的 SHA-256 复核' : '整包下载带断点续传') + '；App 装完自己校验 MD5。</span>';
+      var why = document.getElementById('g-why');
+      if (why) why.hidden = true;
+    })
+    .catch(function (e) {
+      e = e || {};
+      setMainLabel('这个镜像没有安装包');
+      btns.forEach(function (b) { if (b) { b.href = 'download.html'; b.removeAttribute('download'); } });
+      var nav = document.getElementById('nav-dl');
+      if (nav) nav.textContent = '下载 APK';
+      if (cards) cards.classList.add('no-js');
+      var why = document.getElementById('g-why');
+      if (why) {
+        why.hidden = false;
+        // 三种原因三种文案。把「这个镜像根本没放包」写成「浏览器挡住了 fetch」，
+        // 是在给一个联网正常的人指一个不存在的原因——下载页那三分支同样是这个口径。
+        why.textContent = e.missing
+          ? '这个镜像没有 updates/：Cloudflare Pages 单文件上限 25 MiB，安装包比它大，所以整包与清单留在 GitHub 那一侧。去下载页看当前镜像地址。'
+          : e.noapk
+            ? '清单读到了，但里面没有 apk 那一段：这一份发布只登记了网页版，安装包没跟着放上来。'
+            : '没取到可用的 updates/version.json：可能是这个地址取不到它、回来的内容不是合法 JSON，也可能是你正双击打开本文件（浏览器不允许 fetch）。请通过线上地址访问。';
+      }
+      var tp = document.getElementById('trust-pkg');
+      if (tp) tp.innerHTML = '<b>安装包</b><span>没读到清单，所以大小与分块这里保持空白——宁可不显示，也不显示一个猜出来的数。</span>';
+    });
+})();
+</script>
 </body>
 </html>

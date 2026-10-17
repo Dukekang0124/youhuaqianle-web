@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15151b">
+<meta name="description" content="又花钱了 · 隐私与数据：账本存在哪、什么会离开你的设备、语音与 AI 开关各意味着什么、为什么没有账号与云同步、怎么备份与彻底删除。">
+<title>又花钱了 · 隐私与数据</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="pv">
+<div class="site-narrow">
+
+  <nav class="site-nav">
+    <div class="brand">
+      <span class="mark">💸</span>
+      <span><b>又花钱了</b><i>隐私与数据</i></span>
+    </div>
+    <div class="site-links">
+      <a href="home.html">官网</a>
+      <a href="home.html#cap">能力</a>
+      <a href="home.html#faq">常见问题</a>
+      <a href="download.html">下载</a>
+    </div>
+    <div class="site-cta">
+      <a class="site-pill ghostv" href="index.html">网页版</a>
+      <a class="site-pill" href="download.html">下载 APK</a>
+      <details class="site-menu">
+        <summary>目录</summary>
+        <div class="site-drop">
+          <a href="#where">账本存在哪</a>
+          <a href="#out">什么会离开设备</a>
+          <a href="#voice">语音与 AI 开关</a>
+          <a href="#host">托管与日志</a>
+          <a href="#keep">备份与彻底删除</a>
+          <a href="home.html">官网首页</a>
+          <a href="download.html">下载与安装</a>
+          <a href="index.html">网页版</a>
+        </div>
+      </details>
+    </div>
+  </nav>
+
+  <header class="site-hero">
+    <div>
+      <p class="site-eyebrow">这一页只讲能验证的事</p>
+      <h1>我们看不到你的账本。<br>不是承诺，是因为没有能看到它的那一侧。</h1>
+      <p class="site-lede">没有存你账本的服务器，没有账号，没有埋点，页面里没有任何第三方请求。下面逐条写清：数据落在哪个位置、什么情况下会有内容离开你的设备、以及每一处开关打开意味着什么。</p>
+      <div class="site-btnrow">
+        <a class="site-btn ghost" href="home.html">回官网</a>
+        <a class="site-btn ghost" href="#keep">怎么备份与彻底删除</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="pv-toc">
+      <ol>
+        <li><a href="#where">账本到底存在哪</a></li>
+        <li><a href="#none">我们收集什么：一份都没有</a></li>
+        <li><a href="#out">什么情况下会有内容离开你的设备</a></li>
+        <li><a href="#voice">语音与 AI 两个开关各自意味着什么</a></li>
+        <li><a href="#host">下载与更新这一条路上，谁能看到什么</a></li>
+        <li><a href="#third">第三方清单：页面里是零</a></li>
+        <li><a href="#keep">备份、迁移与彻底删除</a></li>
+        <li><a href="#change">这一页怎么算"最新版"</a></li>
+      </ol>
+    </div>
+
+    <section class="pv-sec" id="where">
+      <h2>一、账本到底存在哪</h2>
+      <ul>
+        <li><b>网页版：</b>存在这台浏览器自己的本机存储里（同源隔离，别的网站读不到它）。清缓存、换浏览器、换设备、用无痕窗口，都会让它不在——这台设备上的这一份就是全部。</li>
+        <li><b>安卓版：</b>存在你手机 App 私目录里的本机数据库，随系统备份策略走；我们这一侧没有副本。</li>
+        <li><b>备份文件：</b>你主动导出的 JSON／CSV 落在你选的位置（下载目录、聊天收藏、网盘都算），那时它是你的文件，不是我们的数据。</li>
+      </ul>
+      <p class="pv-note">金额的判定、分类的口径、周期与阈值、红绿灯档位，全部是确定性代码在你设备上算出来的；没有任何一步依赖我们的服务端——因为不存在这样一个服务端。</p>
+    </section>
+
+    <section class="pv-sec" id="none">
+      <h2>二、我们收集什么：一份都没有</h2>
+      <p>没有账号体系，所以没有邮箱、手机号、昵称可收；没有统计脚本，所以没有访问分析、漏斗、留存；没有广告位，所以没有标识符与画像。站点是纯静态文件，我们这一侧没有能接收数据的接口。</p>
+      <p>这条同时是产品的限制，不是夸奖：正因为没有服务端，我们不能"帮你找回删掉的账"、不能跨设备自动同步、也不能告诉你"上一版很多人遇到过某个问题"——问题只能你告诉我们，或者从公开的仓库反馈里看到。</p>
+    </section>
+
+    <section class="pv-sec" id="out">
+      <h2>三、什么情况下会有内容离开你的设备</h2>
+      <ul>
+        <li><b>你打开这个网站、下载这个安装包。</b>请求发到托管方（GitHub Pages 与原始文件域名、或 Cloudflare Pages 那一侧）。托管方会按它自己的策略记录标准访问日志（IP、时间、请求的路径）——这一份日志不在我们手里，也在你手机上看不见。页面上没有第三方资源，所以不会有"顺手向别的域名发一次请求"。</li>
+        <li><b>你主动点"检查更新"或在 App 里下载新版。</b>App 去读清单文件、按清单地址取安装包与分块。同上：这条路上托管方看得到一次文件请求，看不到你账本里的任何内容。</li>
+        <li><b>你在网页版打开语音输入。</b>识别用的是浏览器自带的语音服务——那句话会被交给浏览器的语音识别处理，具体走谁的服务由你的浏览器决定。默认是关的，不点麦克风一个字都不听。</li>
+        <li><b>你在安卓版里开启云端 AI 相关能力。</b>见下一节：只有那一刻，与当前这一笔相关的一句话才会被送去处理。不开就一次都不发。</li>
+      </ul>
+    </section>
+
+    <section class="pv-sec" id="voice">
+      <h2>四、语音与 AI 两个开关各自意味着什么</h2>
+      <p><b>安卓版的离线语音识别用的是装在设备上的模型。</b>模型文件是一次性下载的资产，识别本身在设备上完成；不联网也能听你说话并出字。这条路上没有"录音上传"。</p>
+      <p><b>智能归类／洞察润色／问账这一类要模型能力的，在安卓版里是可选的。</b>它的口径是：需要总授权，你在设置里明确打开才会用；调用只带上与当前这笔相关的一句话，不带整本账；每一次外发都记进审计入口可以回看；不想用了随时整体关掉。云端不可达时它会安静地退回本机能力，不会拿你的账去赌一条网络。</p>
+      <p class="pv-note">网页版目前没有这套云端能力（上面那张对照表里如实写着），所以也不存在"网页版偷偷发数据"这件事。</p>
+    </section>
+
+    <section class="pv-sec" id="host">
+      <h2>五、下载与更新这条路上，谁能看到什么</h2>
+      <p>站点、更新清单、安装包、分块全在同一个公开仓库里；推一次就是把这几样同时上线。<b>这个仓库是公开的</b>：任何拿到安装包的人都能读到一个新版本号的包，包本身不含你的数据、也不含任何密钥。请不要把仓库地址、备用更新地址发到不需要收到的地方。</p>
+      <p>如果你要手动填备用更新地址（App 内 设置 → 关于与更新），填的是<b>目录地址、结尾带斜杠</b>；怎么填、当前地址是什么，下载那一页有一行可以直接复制，这里不重复抄一份——抄一份就会有第二处需要维护的口径。</p>
+    </section>
+
+    <section class="pv-sec" id="third">
+      <h2>六、第三方清单：页面里是零</h2>
+      <p>本站三页（官网、下载、隐私）与网页版都不引入外部字体、CDN、图标库、图片地址、地图、支付、客服组件与统计脚本。这不是"我们要求他们别记录"，而是页面里没有指向它们的地址可请求。</p>
+      <p>这条由发布脚本盯住：会发起网络请求的写法（外链资源、远程模块、动态导入、对外 fetch、WebSocket、SSE、XHR、信标上报、CSS 外链）与绝对路径一起被逐条拦，写法不合规就不出包。所以"零外链"不是一个我们每次自觉维持的口号，而是一个不满足就发不出去的状态。</p>
+    </section>
+
+    <section class="pv-sec" id="keep">
+      <h2>七、备份、迁移与彻底删除</h2>
+      <ul>
+        <li><b>备份：</b>网页版在"我的"里导出 JSON，或复制备份内容粘进你自己的收藏；安卓版支持导出与本机自动备份。建议至少留一份在设备之外——只有本机那一份，等于没有备份。</li>
+        <li><b>迁移：</b>导出的文件在网页版与安卓版之间互通，原样导入即可接上。</li>
+        <li><b>彻底删除：</b>网页版——清除这一站的浏览数据（或直接删导出的旧备份文件）；安卓版——在应用里清空数据，或卸载应用，随之你的账本从这台设备上消失。因为服务器上没有副本，你删掉的那一份就是最后一份：不需要、也没法向我们提"删除请求"。</li>
+      </ul>
+      <p class="pv-note">反馈渠道：项目源码与发布链都在一个公开仓库里，仓库地址显示在 <a href="download.html" style="color:var(--gold)">下载与安装</a> 那一页（那一行可直接复制，我们不把它做成外链，免得页面上出现任何指向第三方地址的请求）。</p>
+    </section>
+
+    <section class="pv-sec" id="change">
+      <h2>八、这一页怎么算"最新版"</h2>
+      <p>这一页与站点其他文件一起发布：站点换了，你刷新拿到的就是新的，不需要装任何东西、也不会掉数据。本页不放"上次更新于"这种手工维护的日期——它写过一次就等着和线上不一致。</p>
+      <p>口径变更时我们以同样方式生效：改这一页、走同一条发布链、上线即可见。若某次变更会真正改变数据的处理方式，我们会同时改 App 内的说明文案，而不是只动网页。</p>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <p class="fcopy">又花钱了 · 本机确定性代码，账本不出你的设备。</p>
+    <p class="flinks"><a href="home.html">官网</a><a href="index.html">网页版</a><a href="download.html">下载与安装</a><a href="privacy.html">隐私与数据</a></p>
+    <p class="fsub">这一页不请求任何第三方地址；页面上所有关于"我们存了什么"的说法，都能在你自己的设备上验证：看浏览器存了什么、看手机应用数据里有什么、看这个仓库里公开了什么。</p>
+  </footer>
+
+</div>
+<noscript><style>.pv-toc{display:block}</style></noscript>
+</body>
+</html>
